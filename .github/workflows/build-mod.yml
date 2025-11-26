@@ -37,6 +37,7 @@ jobs:
         cat << 'EOF' > src/main/java/com/example/bridging/BridgingMod.java
         package com.example.bridging;
         import net.fabricmc.api.ClientModInitializer;
+        import net.minecraft.util.math.BlockPos;
         public class BridgingMod implements ClientModInitializer {
             public static final String MOD_ID = "bridging";
             public static int tickDelay = 0;
