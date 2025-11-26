@@ -100,7 +100,8 @@ jobs:
                 if (client.interactionManager != null) {
                     client.interactionManager.interactBlock(player, client.world, Hand.MAIN_HAND, hitResult);
                     BridgingMod.lastPlaced = true;
-                    int baseDelay = player.isFalling() ? 0 : 1;
+                    // FIX: استخدام isOnGround() بدلاً من isFalling() اللي مش موجودة
+                    int baseDelay = player.isOnGround() ? 1 : 0;
                     BridgingMod.tickDelay = baseDelay + (int)(Math.random() * 2);
                 }
             }
