@@ -244,7 +244,7 @@ jobs:
           "version": "3.0.0",
           "name": "Server-Safe Bridging",
           "description": "Legitimate bridging - blocks placed on adjacent faces",
-          "authors": ["AutoBuilder"],
+          "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
