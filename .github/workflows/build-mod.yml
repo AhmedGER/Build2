@@ -1,0 +1,228 @@
+# .github/workflows/build-mod.yml
+name: Build Bridging Mod
+
+on:
+  workflow_dispatch:
+
+jobs:
+  setup-and-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Set up JDK 8
+      uses: actions/setup-java@v3
+      with:
+        java-version: '8'
+        distribution: 'temurin'
+    
+    - name: Setup Gradle
+      uses: gradle/gradle-build-action@v2
+      with:
+        gradle-version: 6.9
+    
+    - name: Clean everything
+      run: |
+        rm -rf src/ build/ .gradle/ gradle/ *.gradle *.properties gradlew* .gitignore
+        find . -name "*.java" -delete
+        find . -name "*.json" -delete
+    
+    - name: Create directories
+      run: |
+        mkdir -p src/main/java/com/example/bridging/mixin
+        mkdir -p src/main/resources
+    
+    - name: Write BridgingMod.java
+      shell: bash
+      run: |
+        cat << 'EOF' > src/main/java/com/example/bridging/BridgingMod.java
+        package com.example.bridging;
+        import net.fabricmc.api.ClientModInitializer;
+        public class BridgingMod implements ClientModInitializer {
+            public static final String MOD_ID = "bridging";
+            public static int tickDelay = 0;
+            public static boolean lastPlaced = false;
+            @Override
+            public void onInitializeClient() {
+                System.out.println("[Smart Bridging] Hold RIGHT CLICK to bridge!");
+            }
+        }
+        EOF
+    
+    - name: Write ClientPlayerEntityMixin.java
+      shell: bash
+      run: |
+        cat << 'EOF' > src/main/java/com/example/bridging/mixin/ClientPlayerEntityMixin.java
+        package com.example.bridging.mixin;
+        import com.example.bridging.BridgingMod;
+        import net.minecraft.block.BlockState;
+        import net.minecraft.client.MinecraftClient;
+        import net.minecraft.client.network.ClientPlayerEntity;
+        import net.minecraft.item.BlockItem;
+        import net.minecraft.item.ItemStack;
+        import net.minecraft.util.Hand;
+        import net.minecraft.util.hit.BlockHitResult;
+        import net.minecraft.util.math.BlockPos;
+        import net.minecraft.util.math.Direction;
+        import net.minecraft.util.math.Vec3d;
+        import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.injection.At;
+        import org.spongepowered.asm.mixin.injection.Inject;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+        @Mixin(ClientPlayerEntity.class)
+        public class ClientPlayerEntityMixin {
+            @Inject(method = "tick", at = @At("HEAD"))
+            private void onTick(CallbackInfo ci) {
+                ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
+                MinecraftClient client = MinecraftClient.getInstance();
+                if (client.world == null || client.options == null) return;
+                if (!client.options.keyUse.isPressed()) {
+                    BridgingMod.tickDelay = 0;
+                    BridgingMod.lastPlaced = false;
+                    return;
+                }
+                ItemStack mainHand = player.getMainHandStack();
+                if (!(mainHand.getItem() instanceof BlockItem)) return;
+                if (BridgingMod.tickDelay > 0) {
+                    BridgingMod.tickDelay--;
+                    return;
+                }
+                BlockPos belowPos = player.getBlockPos().down();
+                BlockState belowState = client.world.getBlockState(belowPos);
+                if (!belowState.isAir() && BridgingMod.lastPlaced) {
+                    return;
+                }
+                Vec3d playerPos = player.getPos();
+                Vec3d blockCenter = Vec3d.ofCenter(belowPos);
+                double distance = playerPos.distanceTo(blockCenter);
+                if (distance > 5.5) return;
+                Vec3d hitVec = blockCenter.add(0, 0.5, 0);
+                BlockHitResult hitResult = new BlockHitResult(hitVec, Direction.UP, belowPos, false);
+                if (client.interactionManager != null) {
+                    client.interactionManager.interactBlock(player, client.world, Hand.MAIN_HAND, hitResult);
+                    BridgingMod.lastPlaced = true;
+                    int baseDelay = player.isFalling() ? 0 : 1;
+                    BridgingMod.tickDelay = baseDelay + (int)(Math.random() * 2);
+                }
+            }
+        }
+        EOF
+    
+    - name: Write fabric.mod.json
+      shell: bash
+      run: |
+        cat << 'EOF' > src/main/resources/fabric.mod.json
+        {
+          "schemaVersion": 1,
+          "id": "bridging",
+          "version": "1.3.0",
+          "name": "Ultra Fast Bridging",
+          "description": "Emergency mode when falling - ULTRA FAST",
+          "authors": ["AutoBuilder"],
+          "license": "MIT",
+          "environment": "client",
+          "entrypoints": {
+            "client": ["com.example.bridging.BridgingMod"]
+          },
+          "mixins": ["bridging.mixins.json"],
+          "depends": {
+            "fabricloader": ">=0.11.0",
+            "fabric": "*",
+            "minecraft": "1.16.5"
+          }
+        }
+        EOF
+    
+    - name: Write bridging.mixins.json
+      shell: bash
+      run: |
+        cat << 'EOF' > src/main/resources/bridging.mixins.json
+        {
+          "required": true,
+          "minVersion": "0.8",
+          "package": "com.example.bridging.mixin",
+          "compatibilityLevel": "JAVA_8",
+          "client": ["ClientPlayerEntityMixin"],
+          "injectors": {"defaultRequire": 1}
+        }
+        EOF
+    
+    - name: Write build.gradle
+      shell: bash
+      run: |
+        cat << 'EOF' > build.gradle
+        plugins {
+            id 'fabric-loom' version '0.7-SNAPSHOT'
+            id 'maven-publish'
+        }
+        sourceCompatibility = JavaVersion.VERSION_1_8
+        targetCompatibility = JavaVersion.VERSION_1_8
+        archivesBaseName = "bridging-mod"
+        version = "1.3.0"
+        group = "com.example"
+        repositories {
+            maven { url 'https://maven.fabricmc.net/' }
+            maven {
+                url 'https://www.cursemaven.com'
+                content { includeGroup "curse.maven" }
+            }
+        }
+        dependencies {
+            minecraft "com.mojang:minecraft:1.16.5"
+            mappings "net.fabricmc:yarn:1.16.5+build.10:v2"
+            modImplementation "net.fabricmc:fabric-loader:0.11.3"
+            modImplementation "curse.maven:fabric-api-306612:3516413"
+        }
+        processResources {
+            inputs.property "version", project.version
+            filesMatching("fabric.mod.json") { expand "version": project.version }
+        }
+        tasks.withType(JavaCompile).configureEach {
+            it.options.encoding = "UTF-8"
+        }
+        java { withSourcesJar() }
+        jar {
+            from("LICENSE") { rename { "${it}_${project.archivesBaseName}"} }
+        }
+        EOF
+    
+    - name: Write gradle.properties
+      run: echo 'org.gradle.jvmargs=-Xmx2G' > gradle.properties
+    
+    - name: Write settings.gradle
+      shell: bash
+      run: |
+        cat << 'EOF' > settings.gradle
+        pluginManagement {
+            repositories {
+                maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+                gradlePluginPortal()
+            }
+        }
+        rootProject.name = 'bridging-mod'
+        EOF
+    
+    - name: Create Gradle Wrapper
+      run: gradle wrapper --gradle-version 6.9
+    
+    - name: Grant execute permission
+      run: chmod +x gradlew
+    
+    - name: Verify all files
+      run: |
+        echo "=== Source files ==="
+        find src -type f -exec echo {} \; -exec cat {} \;
+        echo "=== Config files ==="
+        cat build.gradle
+        cat settings.gradle
+    
+    - name: Build mod
+      run: ./gradlew clean build --no-daemon --stacktrace
+    
+    - name: List build output
+      run: ls -lah build/libs/
+    
+    - name: Upload Mod JAR
+      uses: actions/upload-artifact@v4
+      with:
+        name: ultra-fast-bridging-v1.3.0-EMERGENCY-MODE
+        path: build/libs/*.jar
