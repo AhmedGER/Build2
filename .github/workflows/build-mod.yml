@@ -1,5 +1,5 @@
 # .github/workflows/build-mod.yml
-name: Build Bridging Mod (Smooth with Hand Animation)
+name: Build Bridging Mod (Server-Safe Version)
 
 on:
   workflow_dispatch:
@@ -40,10 +40,10 @@ jobs:
         public class BridgingMod implements ClientModInitializer {
             public static final String MOD_ID = "bridging";
             public static int tickDelay = 0;
-            public static boolean lastPlaced = false;
+            public static BlockPos lastPlacedBlock = null;
             @Override
             public void onInitializeClient() {
-                System.out.println("[Smooth Bridging] Hold RIGHT CLICK to bridge with hand animation!");
+                System.out.println("[Server-Safe Bridging] Place first block manually, then hold RIGHT CLICK!");
             }
         }
         EOF
@@ -76,47 +76,74 @@ jobs:
                 ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
                 MinecraftClient client = MinecraftClient.getInstance();
                 
-                // التحقق من أن الـ world والـ options موجودين
                 if (client.world == null || client.options == null) return;
                 
-                // إذا اللاعب مش ضاغط على زر الاستخدام، reset كل حاجة
+                // إذا اللاعب مش ضاغط على زر الاستخدام
                 if (!client.options.keyUse.isPressed()) {
                     BridgingMod.tickDelay = 0;
-                    BridgingMod.lastPlaced = false;
                     return;
                 }
                 
-                // التحقق من أن اللاعب ماسك بلوك في إيده
+                // التحقق من أن اللاعب ماسك بلوك
                 ItemStack mainHand = player.getMainHandStack();
-                if (!(mainHand.getItem() instanceof BlockItem)) return;
+                if (!(mainHand.getItem() instanceof BlockItem)) {
+                    BridgingMod.lastPlacedBlock = null;
+                    return;
+                }
                 
-                // انتظر الـ delay قبل ما تحط بلوك تاني
+                // انتظر الـ delay
                 if (BridgingMod.tickDelay > 0) {
                     BridgingMod.tickDelay--;
                     return;
                 }
                 
-                // التحقق من البلوك تحت اللاعب
-                BlockPos belowPos = player.getBlockPos().down();
-                BlockState belowState = client.world.getBlockState(belowPos);
+                // موقع البلوك المستهدف (تحت اللاعب)
+                BlockPos targetPos = player.getBlockPos().down();
+                BlockState targetState = client.world.getBlockState(targetPos);
                 
-                // لو في بلوك تحتك واللاعب حط بلوك قبل كده، استنى
-                if (!belowState.isAir() && BridgingMod.lastPlaced) {
+                // لو في بلوك موجود تحتك، مش محتاجين نعمل حاجة
+                if (!targetState.isAir()) {
+                    // حدث آخر بلوك معروف
+                    BridgingMod.lastPlacedBlock = targetPos;
                     return;
                 }
                 
+                // ★ الجزء المهم: لازم نلاقي بلوك صلب قريب نحط عليه
+                BlockPos adjacentBlock = findAdjacentSolidBlock(client, targetPos, player.getPos());
+                
+                if (adjacentBlock == null) {
+                    // مفيش بلوك صلب قريب - اللاعب محتاج يحط أول بلوك يدوي
+                    return;
+                }
+                
+                // تحديد الوجه الصحيح للبلوك اللي هنحط عليه
+                Direction placementFace = getPlacementFace(adjacentBlock, targetPos);
+                
+                if (placementFace == null) {
+                    return;
+                }
+                
+                // حساب نقطة الضرب على وجه البلوك
+                Vec3d hitVec = Vec3d.ofCenter(adjacentBlock).add(
+                    placementFace.getOffsetX() * 0.5,
+                    placementFace.getOffsetY() * 0.5,
+                    placementFace.getOffsetZ() * 0.5
+                );
+                
                 // التحقق من المسافة
-                Vec3d playerPos = player.getPos();
-                Vec3d blockCenter = Vec3d.ofCenter(belowPos);
-                double distance = playerPos.distanceTo(blockCenter);
+                double distance = player.getPos().distanceTo(hitVec);
                 if (distance > 5.0) return;
                 
-                // تحضير الـ hit result لوضع البلوك
-                Vec3d hitVec = blockCenter.add(0, 0.5, 0);
-                BlockHitResult hitResult = new BlockHitResult(hitVec, Direction.UP, belowPos, false);
+                // إنشاء BlockHitResult بشكل صحيح
+                BlockHitResult hitResult = new BlockHitResult(
+                    hitVec, 
+                    placementFace, 
+                    adjacentBlock, 
+                    false
+                );
                 
                 if (client.interactionManager != null) {
-                    // حط البلوك
+                    // حاول تحط البلوك
                     ActionResult result = client.interactionManager.interactBlock(
                         player, 
                         client.world, 
@@ -124,20 +151,84 @@ jobs:
                         hitResult
                     );
                     
-                    // إذا البلوك اتحط بنجاح
                     if (result.isAccepted()) {
-                        // ★ الجزء المهم: عمل hand swing animation
+                        // عمل hand animation
                         player.swingHand(Hand.MAIN_HAND);
                         
-                        BridgingMod.lastPlaced = true;
+                        // حفظ آخر بلوك اتحط
+                        BridgingMod.lastPlacedBlock = targetPos;
                         
-                        // تحديد الـ delay بناءً على حالة اللاعب
-                        // لو واقف على الأرض: أبطأ شوية (2-3 ticks)
-                        // لو في الهوا/بيقع: أسرع (0-1 tick)
-                        int baseDelay = player.isOnGround() ? 2 : 0;
-                        BridgingMod.tickDelay = baseDelay + (int)(Math.random() * 2);
+                        // تحديد الـ delay
+                        int baseDelay = player.isOnGround() ? 2 : 1;
+                        BridgingMod.tickDelay = baseDelay;
                     }
                 }
+            }
+            
+            /**
+             * يبحث عن أقرب بلوك صلب مجاور للموقع المستهدف
+             */
+            private BlockPos findAdjacentSolidBlock(MinecraftClient client, BlockPos target, Vec3d playerPos) {
+                // ترتيب الاتجاهات حسب الأولوية
+                // نبدأ بالاتجاهات الأفقية (الأهم للـ bridging)
+                Direction[] directions = {
+                    Direction.NORTH,
+                    Direction.SOUTH,
+                    Direction.EAST,
+                    Direction.WEST,
+                    Direction.DOWN,
+                    Direction.UP
+                };
+                
+                BlockPos closest = null;
+                double closestDistance = Double.MAX_VALUE;
+                
+                for (Direction dir : directions) {
+                    BlockPos checkPos = target.offset(dir);
+                    BlockState state = client.world.getBlockState(checkPos);
+                    
+                    // تحقق من أن البلوك صلب وليس هواء
+                    if (!state.isAir() && state.isSolidBlock(client.world, checkPos)) {
+                        // احسب المسافة من اللاعب
+                        double dist = playerPos.squaredDistanceTo(Vec3d.ofCenter(checkPos));
+                        
+                        // اختر الأقرب
+                        if (dist < closestDistance) {
+                            closestDistance = dist;
+                            closest = checkPos;
+                        }
+                    }
+                }
+                
+                // إذا ما لقيناش بلوك قريب، جرب نستخدم آخر بلوك اتحط
+                if (closest == null && BridgingMod.lastPlacedBlock != null) {
+                    BlockState lastState = client.world.getBlockState(BridgingMod.lastPlacedBlock);
+                    if (!lastState.isAir()) {
+                        closest = BridgingMod.lastPlacedBlock;
+                    }
+                }
+                
+                return closest;
+            }
+            
+            /**
+             * يحدد الوجه الصحيح للبلوك اللي هنحط عليه
+             */
+            private Direction getPlacementFace(BlockPos adjacent, BlockPos target) {
+                // احسب الاتجاه من البلوك المجاور للهدف
+                int dx = target.getX() - adjacent.getX();
+                int dy = target.getY() - adjacent.getY();
+                int dz = target.getZ() - adjacent.getZ();
+                
+                // حدد الوجه بناءً على الاتجاه
+                if (dx > 0) return Direction.EAST;
+                if (dx < 0) return Direction.WEST;
+                if (dy > 0) return Direction.UP;
+                if (dy < 0) return Direction.DOWN;
+                if (dz > 0) return Direction.SOUTH;
+                if (dz < 0) return Direction.NORTH;
+                
+                return null;
             }
         }
         EOF
@@ -149,10 +240,10 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "bridging",
-          "version": "2.0.0",
-          "name": "Smooth Bridging Helper",
-          "description": "Fast bridging with smooth hand animations",
-          "authors": ["SIGMAxox"],
+          "version": "3.0.0",
+          "name": "Server-Safe Bridging",
+          "description": "Legitimate bridging - blocks placed on adjacent faces",
+          "authors": ["AutoBuilder"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
@@ -191,8 +282,8 @@ jobs:
         }
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-        archivesBaseName = "smooth-bridging-mod"
-        version = "2.0.0"
+        archivesBaseName = "server-safe-bridging"
+        version = "3.0.0"
         group = "com.example"
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -233,7 +324,7 @@ jobs:
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'smooth-bridging-mod'
+        rootProject.name = 'server-safe-bridging'
         EOF
     
     - name: Create Gradle Wrapper
@@ -259,5 +350,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: smooth-bridging-v2.0.0-hand-animation
+        name: server-safe-bridging-v3.0.0-legitimate
         path: build/libs/*.jar
