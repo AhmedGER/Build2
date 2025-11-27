@@ -7,17 +7,22 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
+      - name: Checkout empty repository
+        uses: actions/checkout@v4
       
-      - name: Create Project Structure
+      - name: Set up JDK 8
+        uses: actions/setup-java@v4
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+      
+      - name: Create ENTIRE Mod from Scratch
         run: |
+          # إنشاء كل الملفات من الصفر في ريبو فارغ
           mkdir -p src/main/java/com/sigmaxox/sigmasteralth
           mkdir -p src/main/resources/assets/sigmasteralth
-          mkdir -p gradle/wrapper
           
-      - name: Create fabric.mod.json
-        run: |
+          # 1. إنشاء fabric.mod.json
           cat > src/main/resources/fabric.mod.json << 'EOF'
           {
             "schemaVersion": 1,
@@ -35,9 +40,6 @@ jobs:
                 "com.sigmaxox.sigmasteralth.SigmaStealthMod"
               ]
             },
-            "mixins": [
-              "sigmasteralth.mixins.json"
-            ],
             "depends": {
               "fabricloader": ">=0.11.3",
               "fabric": "*",
@@ -47,8 +49,7 @@ jobs:
           }
           EOF
           
-      - name: Create SigmaStealthMod.java
-        run: |
+          # 2. إنشاء الملف الرئيسي
           cat > src/main/java/com/sigmaxox/sigmasteralth/SigmaStealthMod.java << 'EOF'
           package com.sigmaxox.sigmasteralth;
           
@@ -63,10 +64,11 @@ jobs:
           
           public class SigmaStealthMod implements ClientModInitializer {
               private static KeyBinding stealthKey;
-              private static boolean stealthEnabled = false;
+              public static boolean stealthEnabled = false;
               
               @Override
               public void onInitializeClient() {
+                  // تسجيل مفتاح ALT
                   stealthKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
                       "key.sigmasteralth.stealth",
                       InputUtil.Type.KEYSYM,
@@ -74,42 +76,32 @@ jobs:
                       "category.sigmasteralth.general"
                   ));
                   
+                  // التحقق من الضغط على المفتاح
                   ClientTickEvents.END_CLIENT_TICK.register(client -> {
-                      while (stealthKey.wasPressed()) {
+                      if (stealthKey.wasPressed()) {
                           stealthEnabled = !stealthEnabled;
                           
                           if (client.player != null) {
                               if (stealthEnabled) {
-                                  activateStealthMode(client);
                                   client.player.sendMessage(Text.of("§6SigmaStealth §a- ON"), true);
+                                  NetworkHandler.startStealth(client.player.getPos());
                               } else {
-                                  deactivateStealthMode(client);
                                   client.player.sendMessage(Text.of("§6SigmaStealth §c- OFF"), true);
+                                  NetworkHandler.stopStealth();
                               }
                           }
                       }
                       
-                      // تحديث الشبكة باستمرار
-                      if (stealthEnabled && client.player != null) {
-                          NetworkHandler.onClientTick();
+                      // إرسال الحزم الوهمية
+                      if (stealthEnabled) {
+                          NetworkHandler.sendFakePackets();
                       }
                   });
-              }
-              
-              private void activateStealthMode(MinecraftClient client) {
-                  if (client.player != null) {
-                      NetworkHandler.startSendingFakePosition(client.player.getPos());
-                  }
-              }
-              
-              private void deactivateStealthMode(MinecraftClient client) {
-                  NetworkHandler.stopSendingFakePosition();
               }
           }
           EOF
           
-      - name: Create NetworkHandler.java
-        run: |
+          # 3. إنشاء NetworkHandler
           cat > src/main/java/com/sigmaxox/sigmasteralth/NetworkHandler.java << 'EOF'
           package com.sigmaxox.sigmasteralth;
           
@@ -118,69 +110,41 @@ jobs:
           import net.minecraft.util.math.Vec3d;
           
           public class NetworkHandler {
-              private static Vec3d lastFakePos;
-              private static boolean sendingFakePos = false;
+              private static Vec3d fakePosition;
+              private static boolean isStealthActive = false;
               
-              public static void startSendingFakePosition(Vec3d pos) {
-                  lastFakePos = pos;
-                  sendingFakePos = true;
-                  sendFakePositionPacket();
+              public static void startStealth(Vec3d pos) {
+                  fakePosition = pos;
+                  isStealthActive = true;
               }
               
-              public static void stopSendingFakePosition() {
-                  sendingFakePos = false;
-                  lastFakePos = null;
+              public static void stopStealth() {
+                  isStealthActive = false;
+                  fakePosition = null;
               }
               
-              public static void onClientTick() {
-                  if (sendingFakePos && lastFakePos != null) {
-                      sendFakePositionPacket();
-                  }
-              }
-              
-              private static void sendFakePositionPacket() {
+              public static void sendFakePackets() {
+                  if (!isStealthActive || fakePosition == null) return;
+                  
                   MinecraftClient client = MinecraftClient.getInstance();
-                  if (client.getNetworkHandler() != null && client.player != null) {
-                      client.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
-                          lastFakePos.x, lastFakePos.y, lastFakePos.z, client.player.isOnGround()
-                      ));
-                  }
+                  if (client.getNetworkHandler() == null || client.player == null) return;
+                  
+                  // إرسال موقع وهمي للخادم
+                  client.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
+                      fakePosition.x, fakePosition.y, fakePosition.z, client.player.isOnGround()
+                  ));
               }
           }
           EOF
           
-      - name: Create mixins.json
-        run: |
-          cat > src/main/resources/sigmasteralth.mixins.json << 'EOF'
-          {
-            "required": true,
-            "minVersion": "0.8",
-            "package": "com.sigmaxox.sigmasteralth.mixin",
-            "compatibilityLevel": "JAVA_8",
-            "refmap": "sigmasteralth-refmap.json",
-            "client": [
-              "ClientPlayerEntityMixin"
-            ],
-            "injectors": {
-              "defaultRequire": 1
-            }
-          }
-          EOF
-          
-      - name: Create build.gradle
-        run: |
+          # 4. إنشاء build.gradle
           cat > build.gradle << 'EOF'
           plugins {
               id 'fabric-loom' version '0.6-SNAPSHOT'
-              id 'maven-publish'
           }
           
-          version = project.mod_version
-          group = project.maven_group
-          
-          repositories {
-              maven { url = "https://maven.fabricmc.net/" }
-          }
+          version = "1.0.0"
+          group = "com.sigmaxox"
           
           dependencies {
               minecraft "com.mojang:minecraft:1.16.5"
@@ -191,73 +155,40 @@ jobs:
           
           processResources {
               inputs.property "version", project.version
-              filteringCharset "UTF-8"
-          
               filesMatching("fabric.mod.json") {
                   expand "version": project.version
               }
           }
-          
-          tasks.withType(JavaCompile) {
-              options.encoding = "UTF-8"
-          }
-          
-          java {
-              withSourcesJar()
-          }
           EOF
           
-      - name: Create gradle.properties
-        run: |
-          cat > gradle.properties << 'EOF'
-          maven_group=com.sigmaxox
-          mod_version=1.0.0
-          EOF
-          
-      - name: Create settings.gradle
-        run: |
+          # 5. إنشاء settings.gradle
           cat > settings.gradle << 'EOF'
           pluginManagement {
               repositories {
-                  maven {
-                      name = 'Fabric'
-                      url = 'https://maven.fabricmc.net/'
-                  }
+                  maven { url = "https://maven.fabricmc.net/" }
                   gradlePluginPortal()
               }
           }
-          rootProject.name = 'sigmasteralth'
+          rootProject.name = "sigmasteralth"
           EOF
           
-      - name: Create gradlew script
-        run: |
-          cat > gradlew << 'EOF'
-          #!/usr/bin/env bash
-          # This is a simplified gradlew script
-          ./gradlew() {
-              if [ -x "./gradle/wrapper/gradle" ]; then
-                  ./gradle/wrapper/gradle "$@"
-              else
-                  echo "Gradle wrapper not found, using system gradle"
-                  gradle "$@"
-              fi
-          }
+          # 6. إنشاء gradle.properties
+          cat > gradle.properties << 'EOF'
+          org.gradle.jvmargs=-Xmx2G
           EOF
-          chmod +x gradlew
-          
-      - name: Set up JDK 8
-        uses: actions/setup-java@v3
-        with:
-          java-version: '8'
-          distribution: 'temurin'
       
-      - name: Make gradlew executable and build
+      - name: Build Mod
         run: |
-          chmod +x ./gradlew || true
-          ./gradlew build || gradle build
+          # تحميل وتثبيت Gradle يدوياً
+          wget https://services.gradle.org/distributions/gradle-7.5-bin.zip
+          unzip gradle-7.5-bin.zip
+          export PATH=$PWD/gradle-7.5/bin:$PATH
+          
+          # البناء
+          gradle build --no-daemon --stacktrace
       
-      - name: Upload Artifact
+      - name: Upload MOD File
         uses: actions/upload-artifact@v4
         with:
-          name: SigmaStealth-Mod
+          name: SigmaStealth-MOD
           path: build/libs/*.jar
