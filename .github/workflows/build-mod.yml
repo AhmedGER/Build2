@@ -200,7 +200,6 @@ jobs:
              */
             private BlockPos findBestAdjacentBlock(MinecraftClient client, BlockPos target, ClientPlayerEntity player) {
                 Vec3d playerPos = player.getPos();
-                double playerYaw = player.getYaw();
                 
                 // حدد الاتجاه الأفقي الأساسي بناءً على اتجاه اللاعب
                 Direction playerFacing = player.getHorizontalFacing();
