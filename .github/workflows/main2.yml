@@ -14,6 +14,7 @@ jobs:
         run: |
           mkdir -p src/main/java/com/sigmaxox/sigmasteralth
           mkdir -p src/main/resources/assets/sigmasteralth
+          mkdir -p gradle/wrapper
           
       - name: Create fabric.mod.json
         run: |
@@ -63,7 +64,6 @@ jobs:
           public class SigmaStealthMod implements ClientModInitializer {
               private static KeyBinding stealthKey;
               private static boolean stealthEnabled = false;
-              private static Object fakePlayer;
               
               @Override
               public void onInitializeClient() {
@@ -88,18 +88,21 @@ jobs:
                               }
                           }
                       }
+                      
+                      // تحديث الشبكة باستمرار
+                      if (stealthEnabled && client.player != null) {
+                          NetworkHandler.onClientTick();
+                      }
                   });
               }
               
               private void activateStealthMode(MinecraftClient client) {
-                  // إنشاء لاعب وهمي في الموقع الحالي
                   if (client.player != null) {
-                      NetworkHandler.sendFakePosition(client.player.getPos());
+                      NetworkHandler.startSendingFakePosition(client.player.getPos());
                   }
               }
               
               private void deactivateStealthMode(MinecraftClient client) {
-                  // إزالة اللاعب الوهمي
                   NetworkHandler.stopSendingFakePosition();
               }
           }
@@ -118,17 +121,10 @@ jobs:
               private static Vec3d lastFakePos;
               private static boolean sendingFakePos = false;
               
-              public static void sendFakePosition(Vec3d pos) {
-                  MinecraftClient client = MinecraftClient.getInstance();
-                  if (client.getNetworkHandler() == null) return;
-                  
+              public static void startSendingFakePosition(Vec3d pos) {
                   lastFakePos = pos;
                   sendingFakePos = true;
-                  
-                  // إرسال موقع وهمي للخادم
-                  client.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
-                      pos.x, pos.y, pos.z, client.player.isOnGround()
-                  ));
+                  sendFakePositionPacket();
               }
               
               public static void stopSendingFakePosition() {
@@ -138,13 +134,16 @@ jobs:
               
               public static void onClientTick() {
                   if (sendingFakePos && lastFakePos != null) {
-                      MinecraftClient client = MinecraftClient.getInstance();
-                      if (client.getNetworkHandler() != null && client.player != null) {
-                          // الاستمرار في إرسال الموقع الوهمي
-                          client.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
-                              lastFakePos.x, lastFakePos.y, lastFakePos.z, client.player.isOnGround()
-                          ));
-                      }
+                      sendFakePositionPacket();
+                  }
+              }
+              
+              private static void sendFakePositionPacket() {
+                  MinecraftClient client = MinecraftClient.getInstance();
+                  if (client.getNetworkHandler() != null && client.player != null) {
+                      client.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
+                          lastFakePos.x, lastFakePos.y, lastFakePos.z, client.player.isOnGround()
+                      ));
                   }
               }
           }
@@ -180,6 +179,7 @@ jobs:
           group = project.maven_group
           
           repositories {
+              maven { url = "https://maven.fabricmc.net/" }
           }
           
           dependencies {
@@ -229,14 +229,32 @@ jobs:
           rootProject.name = 'sigmasteralth'
           EOF
           
-      - name: Download gradlew
+      - name: Create gradlew script
         run: |
-          wget https://raw.githubusercontent.com/FabricMC/fabric-example-mod/1.16/gradlew
+          cat > gradlew << 'EOF'
+          #!/usr/bin/env bash
+          # This is a simplified gradlew script
+          ./gradlew() {
+              if [ -x "./gradle/wrapper/gradle" ]; then
+                  ./gradle/wrapper/gradle "$@"
+              else
+                  echo "Gradle wrapper not found, using system gradle"
+                  gradle "$@"
+              fi
+          }
+          EOF
           chmod +x gradlew
-          wget https://raw.githubusercontent.com/FabricMC/fabric-example-mod/1.16/gradle/wrapper/gradle-wrapper.jar -P gradle/wrapper/
           
-      - name: Build with Gradle
-        run: ./gradlew build
+      - name: Set up JDK 8
+        uses: actions/setup-java@v3
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+      
+      - name: Make gradlew executable and build
+        run: |
+          chmod +x ./gradlew || true
+          ./gradlew build || gradle build
       
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
