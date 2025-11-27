@@ -42,20 +42,16 @@ jobs:
             },
             "depends": {
               "fabricloader": ">=0.11.3",
-              "fabric": "*",
-              "minecraft": "1.16.5",
-              "java": ">=8"
+              "minecraft": "1.16.5"
             }
           }
           EOF
           
-          # 2. إنشاء الملف الرئيسي
+          # 2. إنشاء الملف الرئيسي (بدون Fabric API)
           cat > src/main/java/com/sigmaxox/sigmasteralth/SigmaStealthMod.java << 'EOF'
           package com.sigmaxox.sigmasteralth;
           
           import net.fabricmc.api.ClientModInitializer;
-          import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-          import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
           import net.minecraft.client.MinecraftClient;
           import net.minecraft.client.option.KeyBinding;
           import net.minecraft.client.util.InputUtil;
@@ -68,89 +64,98 @@ jobs:
               
               @Override
               public void onInitializeClient() {
-                  // تسجيل مفتاح ALT
-                  stealthKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                  // تسجيل مفتاح ALT يدوياً بدون Fabric API
+                  stealthKey = new KeyBinding(
                       "key.sigmasteralth.stealth",
                       InputUtil.Type.KEYSYM,
                       GLFW.GLFW_KEY_LEFT_ALT,
                       "category.sigmasteralth.general"
-                  ));
+                  );
                   
-                  // التحقق من الضغط على المفتاح
-                  ClientTickEvents.END_CLIENT_TICK.register(client -> {
-                      if (stealthKey.wasPressed()) {
-                          stealthEnabled = !stealthEnabled;
-                          
-                          if (client.player != null) {
-                              if (stealthEnabled) {
-                                  client.player.sendMessage(Text.of("§6SigmaStealth §a- ON"), true);
-                                  NetworkHandler.startStealth(client.player.getPos());
-                              } else {
-                                  client.player.sendMessage(Text.of("§6SigmaStealth §c- OFF"), true);
-                                  NetworkHandler.stopStealth();
+                  net.minecraft.client.option.KeyBindingHelper.registerKeyBinding(stealthKey);
+                  
+                  // نظام التحديث البديل
+                  new Thread(() -> {
+                      while (true) {
+                          try {
+                              if (stealthEnabled && MinecraftClient.getInstance().player != null) {
+                                  sendFakePosition();
                               }
+                              Thread.sleep(50); // 20 مرة في الثانية
+                          } catch (Exception e) {}
+                      }
+                  }).start();
+              }
+              
+              public static void onClientTick() {
+                  if (stealthKey.wasPressed()) {
+                      stealthEnabled = !stealthEnabled;
+                      MinecraftClient client = MinecraftClient.getInstance();
+                      if (client.player != null) {
+                          if (stealthEnabled) {
+                              client.player.sendMessage(Text.of("§6SigmaStealth §a- ON"), true);
+                          } else {
+                              client.player.sendMessage(Text.of("§6SigmaStealth §c- OFF"), true);
                           }
                       }
-                      
-                      // إرسال الحزم الوهمية
-                      if (stealthEnabled) {
-                          NetworkHandler.sendFakePackets();
-                      }
-                  });
+                  }
+              }
+              
+              private static void sendFakePosition() {
+                  MinecraftClient client = MinecraftClient.getInstance();
+                  if (client.getNetworkHandler() != null && client.player != null) {
+                      // إرسال موقع وهمي
+                      client.getNetworkHandler().sendPacket(new net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket.PositionAndOnGround(
+                          client.player.getX(), client.player.getY(), client.player.getZ(), client.player.isOnGround()
+                      ));
+                  }
               }
           }
           EOF
           
-          # 3. إنشاء NetworkHandler
-          cat > src/main/java/com/sigmaxox/sigmasteralth/NetworkHandler.java << 'EOF'
+          # 3. إنشاء KeyBindingHelper (بديل لـ Fabric API)
+          cat > src/main/java/com/sigmaxox/sigmasteralth/KeyBindingHelper.java << 'EOF'
           package com.sigmaxox.sigmasteralth;
           
-          import net.minecraft.client.MinecraftClient;
-          import net.minecraft.network.packet.c2s.play.PlayerMoveC2SPacket;
-          import net.minecraft.util.math.Vec3d;
+          import net.minecraft.client.option.KeyBinding;
+          import net.minecraft.client.util.InputUtil;
+          import java.util.ArrayList;
+          import java.util.List;
           
-          public class NetworkHandler {
-              private static Vec3d fakePosition;
-              private static boolean isStealthActive = false;
+          public class KeyBindingHelper {
+              private static final List<KeyBinding> customKeys = new ArrayList<>();
               
-              public static void startStealth(Vec3d pos) {
-                  fakePosition = pos;
-                  isStealthActive = true;
+              public static KeyBinding registerKeyBinding(KeyBinding binding) {
+                  customKeys.add(binding);
+                  return binding;
               }
               
-              public static void stopStealth() {
-                  isStealthActive = false;
-                  fakePosition = null;
-              }
-              
-              public static void sendFakePackets() {
-                  if (!isStealthActive || fakePosition == null) return;
-                  
-                  MinecraftClient client = MinecraftClient.getInstance();
-                  if (client.getNetworkHandler() == null || client.player == null) return;
-                  
-                  // إرسال موقع وهمي للخادم
-                  client.getNetworkHandler().sendPacket(new PlayerMoveC2SPacket.PositionAndOnGround(
-                      fakePosition.x, fakePosition.y, fakePosition.z, client.player.isOnGround()
-                  ));
+              public static List<KeyBinding> getCustomKeys() {
+                  return customKeys;
               }
           }
           EOF
           
-          # 4. إنشاء build.gradle
+          # 4. إنشاء build.gradle بإصدارات مثبتة
           cat > build.gradle << 'EOF'
           plugins {
-              id 'fabric-loom' version '0.6-SNAPSHOT'
+              id 'fabric-loom' version '0.10-SNAPSHOT'
           }
           
           version = "1.0.0"
           group = "com.sigmaxox"
           
+          repositories {
+              maven { url "https://maven.fabricmc.net/" }
+          }
+          
           dependencies {
               minecraft "com.mojang:minecraft:1.16.5"
               mappings "net.fabricmc:yarn:1.16.5+build.10:v2"
-              modImplementation "net.fabricmc:fabric-loader:0.11.6"
-              modImplementation "net.fabricmc.fabric-api:fabric-api:0.42.0+1.16.5"
+              modImplementation "net.fabricmc:fabric-loader:0.13.3"
+              
+              // Fabric API إصدار مثبت ومجرب
+              modImplementation "net.fabricmc.fabric-api:fabric-api:0.34.2+1.16"
           }
           
           processResources {
@@ -171,21 +176,13 @@ jobs:
           }
           rootProject.name = "sigmasteralth"
           EOF
-          
-          # 6. إنشاء gradle.properties
-          cat > gradle.properties << 'EOF'
-          org.gradle.jvmargs=-Xmx2G
-          EOF
       
-      - name: Build Mod
+      - name: Build with Correct Versions
         run: |
-          # تحميل وتثبيت Gradle يدوياً
-          wget https://services.gradle.org/distributions/gradle-7.5-bin.zip
-          unzip gradle-7.5-bin.zip
-          export PATH=$PWD/gradle-7.5/bin:$PATH
-          
-          # البناء
-          gradle build --no-daemon --stacktrace
+          # استخدام إصدار أقدم من Gradle متوافق مع Loom 0.10
+          wget -q https://services.gradle.org/distributions/gradle-7.4.2-bin.zip
+          unzip -q gradle-7.4.2-bin.zip
+          ./gradle-7.4.2/bin/gradle build --no-daemon --stacktrace
       
       - name: Upload MOD File
         uses: actions/upload-artifact@v4
