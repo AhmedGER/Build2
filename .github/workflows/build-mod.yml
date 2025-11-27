@@ -1,5 +1,5 @@
 # .github/workflows/build-mod.yml
-name: Build Bridging Mod (Server-Safe Version)
+name: Build Bridging Mod (Stable & Accurate)
 
 on:
   workflow_dispatch:
@@ -42,9 +42,10 @@ jobs:
             public static final String MOD_ID = "bridging";
             public static int tickDelay = 0;
             public static BlockPos lastPlacedBlock = null;
+            public static int confirmationTicks = 0;
             @Override
             public void onInitializeClient() {
-                System.out.println("[Server-Safe Bridging] Place first block manually, then hold RIGHT CLICK!");
+                System.out.println("[Stable Bridging] Place first block manually, then hold RIGHT CLICK!");
             }
         }
         EOF
@@ -82,6 +83,7 @@ jobs:
                 // إذا اللاعب مش ضاغط على زر الاستخدام
                 if (!client.options.keyUse.isPressed()) {
                     BridgingMod.tickDelay = 0;
+                    BridgingMod.confirmationTicks = 0;
                     return;
                 }
                 
@@ -89,6 +91,7 @@ jobs:
                 ItemStack mainHand = player.getMainHandStack();
                 if (!(mainHand.getItem() instanceof BlockItem)) {
                     BridgingMod.lastPlacedBlock = null;
+                    BridgingMod.confirmationTicks = 0;
                     return;
                 }
                 
@@ -102,40 +105,60 @@ jobs:
                 BlockPos targetPos = player.getBlockPos().down();
                 BlockState targetState = client.world.getBlockState(targetPos);
                 
-                // لو في بلوك موجود تحتك، مش محتاجين نعمل حاجة
+                // لو في بلوك موجود تحتك بالفعل
                 if (!targetState.isAir()) {
-                    // حدث آخر بلوك معروف
                     BridgingMod.lastPlacedBlock = targetPos;
+                    BridgingMod.confirmationTicks = 0;
                     return;
                 }
                 
-                // ★ الجزء المهم: لازم نلاقي بلوك صلب قريب نحط عليه
-                BlockPos adjacentBlock = findAdjacentSolidBlock(client, targetPos, player.getPos());
+                // ★ التحقق من آخر بلوك: لو موجود، استنى 2 ticks للتأكد إنه stable
+                if (BridgingMod.lastPlacedBlock != null) {
+                    BlockState lastBlockState = client.world.getBlockState(BridgingMod.lastPlacedBlock);
+                    if (lastBlockState.isAir()) {
+                        // البلوك اختفى! السيرفر رفضه
+                        BridgingMod.lastPlacedBlock = null;
+                        BridgingMod.confirmationTicks = 0;
+                        // استنى وقت أطول قبل ما تحاول تاني
+                        BridgingMod.tickDelay = 4;
+                        return;
+                    }
+                    
+                    // استنى شوية للتأكد إن البلوك stable
+                    if (BridgingMod.confirmationTicks < 2) {
+                        BridgingMod.confirmationTicks++;
+                        return;
+                    }
+                }
+                
+                // ★ لاقي أقرب بلوك صلب مجاور
+                BlockPos adjacentBlock = findBestAdjacentBlock(client, targetPos, player);
                 
                 if (adjacentBlock == null) {
-                    // مفيش بلوك صلب قريب - اللاعب محتاج يحط أول بلوك يدوي
+                    // مفيش بلوك صلب قريب
+                    BridgingMod.lastPlacedBlock = null;
                     return;
                 }
                 
-                // تحديد الوجه الصحيح للبلوك اللي هنحط عليه
-                Direction placementFace = getPlacementFace(adjacentBlock, targetPos);
+                // ★ تحديد الوجه الصحيح بناءً على موقع اللاعب
+                Direction placementFace = calculateBestFace(adjacentBlock, targetPos, player.getPos());
                 
                 if (placementFace == null) {
                     return;
                 }
                 
-                // حساب نقطة الضرب على وجه البلوك
+                // حساب نقطة الضرب على وجه البلوك (في النص بالضبط)
                 Vec3d hitVec = Vec3d.ofCenter(adjacentBlock).add(
                     placementFace.getOffsetX() * 0.5,
                     placementFace.getOffsetY() * 0.5,
                     placementFace.getOffsetZ() * 0.5
                 );
                 
-                // التحقق من المسافة
+                // التحقق من المسافة - أقصر مسافة للدقة
                 double distance = player.getPos().distanceTo(hitVec);
-                if (distance > 5.0) return;
+                if (distance > 4.5) return;
                 
-                // إنشاء BlockHitResult بشكل صحيح
+                // إنشاء BlockHitResult بشكل دقيق
                 BlockHitResult hitResult = new BlockHitResult(
                     hitVec, 
                     placementFace, 
@@ -158,78 +181,99 @@ jobs:
                         
                         // حفظ آخر بلوك اتحط
                         BridgingMod.lastPlacedBlock = targetPos;
+                        BridgingMod.confirmationTicks = 0;
                         
-                        // تحديد الـ delay
-                        int baseDelay = player.isOnGround() ? 2 : 1;
-                        BridgingMod.tickDelay = baseDelay;
+                        // ★ Delay أطول للاستقرار والدقة
+                        // لو على الأرض: 3-4 ticks
+                        // لو في الهوا: 2-3 ticks
+                        int baseDelay = player.isOnGround() ? 3 : 2;
+                        BridgingMod.tickDelay = baseDelay + (int)(Math.random() * 2);
+                    } else {
+                        // البلوك ما اتحطش - استنى أكتر
+                        BridgingMod.tickDelay = 5;
                     }
                 }
             }
             
             /**
-             * يبحث عن أقرب بلوك صلب مجاور للموقع المستهدف
+             * يبحث عن أفضل بلوك صلب مجاور بناءً على موقع اللاعب
              */
-            private BlockPos findAdjacentSolidBlock(MinecraftClient client, BlockPos target, Vec3d playerPos) {
-                // ترتيب الاتجاهات حسب الأولوية
-                // نبدأ بالاتجاهات الأفقية (الأهم للـ bridging)
-                Direction[] directions = {
-                    Direction.NORTH,
-                    Direction.SOUTH,
-                    Direction.EAST,
-                    Direction.WEST,
-                    Direction.DOWN,
-                    Direction.UP
+            private BlockPos findBestAdjacentBlock(MinecraftClient client, BlockPos target, ClientPlayerEntity player) {
+                Vec3d playerPos = player.getPos();
+                double playerYaw = player.getYaw();
+                
+                // حدد الاتجاه الأفقي الأساسي بناءً على اتجاه اللاعب
+                Direction playerFacing = player.getHorizontalFacing();
+                Direction behind = playerFacing.getOpposite();
+                
+                // ترتيب الأولويات: خلف اللاعب > تحت > الجوانب > فوق
+                Direction[] priorityDirections = {
+                    behind,              // الأولوية الأولى: خلف اللاعب
+                    Direction.DOWN,      // تحت
+                    behind.rotateYClockwise(),     // يمين
+                    behind.rotateYCounterclockwise(), // شمال
+                    playerFacing,        // أمام (أقل أولوية)
+                    Direction.UP         // فوق (آخر خيار)
                 };
                 
-                BlockPos closest = null;
-                double closestDistance = Double.MAX_VALUE;
-                
-                for (Direction dir : directions) {
+                // جرب كل اتجاه بالترتيب
+                for (Direction dir : priorityDirections) {
                     BlockPos checkPos = target.offset(dir);
                     BlockState state = client.world.getBlockState(checkPos);
                     
-                    // تحقق من أن البلوك صلب وليس هواء
+                    // تحقق من أن البلوك صلب
                     if (!state.isAir() && state.isSolidBlock(client.world, checkPos)) {
-                        // احسب المسافة من اللاعب
+                        // تحقق من المسافة
                         double dist = playerPos.squaredDistanceTo(Vec3d.ofCenter(checkPos));
-                        
-                        // اختر الأقرب
-                        if (dist < closestDistance) {
-                            closestDistance = dist;
-                            closest = checkPos;
+                        if (dist < 25.0) { // أقل من 5 blocks
+                            return checkPos;
                         }
                     }
                 }
                 
-                // إذا ما لقيناش بلوك قريب، جرب نستخدم آخر بلوك اتحط
-                if (closest == null && BridgingMod.lastPlacedBlock != null) {
+                // إذا ما لقيناش، استخدم آخر بلوك اتحط
+                if (BridgingMod.lastPlacedBlock != null) {
                     BlockState lastState = client.world.getBlockState(BridgingMod.lastPlacedBlock);
-                    if (!lastState.isAir()) {
-                        closest = BridgingMod.lastPlacedBlock;
+                    if (!lastState.isAir() && lastState.isSolidBlock(client.world, BridgingMod.lastPlacedBlock)) {
+                        return BridgingMod.lastPlacedBlock;
                     }
                 }
                 
-                return closest;
+                return null;
             }
             
             /**
-             * يحدد الوجه الصحيح للبلوك اللي هنحط عليه
+             * يحسب أفضل وجه للبلوك بناءً على موقع اللاعب والهدف
              */
-            private Direction getPlacementFace(BlockPos adjacent, BlockPos target) {
+            private Direction calculateBestFace(BlockPos adjacent, BlockPos target, Vec3d playerPos) {
                 // احسب الاتجاه من البلوك المجاور للهدف
                 int dx = target.getX() - adjacent.getX();
                 int dy = target.getY() - adjacent.getY();
                 int dz = target.getZ() - adjacent.getZ();
                 
-                // حدد الوجه بناءً على الاتجاه
-                if (dx > 0) return Direction.EAST;
-                if (dx < 0) return Direction.WEST;
-                if (dy > 0) return Direction.UP;
-                if (dy < 0) return Direction.DOWN;
-                if (dz > 0) return Direction.SOUTH;
-                if (dz < 0) return Direction.NORTH;
+                // أولاً: حدد الوجه بناءً على الفرق في الموقع
+                Direction face = null;
                 
-                return null;
+                if (Math.abs(dx) > 0) {
+                    face = dx > 0 ? Direction.EAST : Direction.WEST;
+                } else if (Math.abs(dz) > 0) {
+                    face = dz > 0 ? Direction.SOUTH : Direction.NORTH;
+                } else if (dy > 0) {
+                    face = Direction.UP;
+                } else if (dy < 0) {
+                    face = Direction.DOWN;
+                }
+                
+                // تحقق من أن الوجه منطقي
+                if (face != null) {
+                    // تأكد إن الوجه بيواجه الهدف الصحيح
+                    BlockPos testPos = adjacent.offset(face);
+                    if (testPos.equals(target)) {
+                        return face;
+                    }
+                }
+                
+                return face;
             }
         }
         EOF
@@ -241,10 +285,10 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "bridging",
-          "version": "3.0.0",
-          "name": "Server-Safe Bridging",
-          "description": "Legitimate bridging - blocks placed on adjacent faces",
-          "authors": ["SIGMAxox"],
+          "version": "4.0.0",
+          "name": "Stable Bridging Helper",
+          "description": "Accurate and stable bridging with server validation",
+          "authors": ["AutoBuilder"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
@@ -283,8 +327,8 @@ jobs:
         }
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-        archivesBaseName = "server-safe-bridging"
-        version = "3.0.0"
+        archivesBaseName = "stable-bridging"
+        version = "4.0.0"
         group = "com.example"
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -325,7 +369,7 @@ jobs:
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'server-safe-bridging'
+        rootProject.name = 'stable-bridging'
         EOF
     
     - name: Create Gradle Wrapper
@@ -351,5 +395,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: server-safe-bridging-v3.0.0-legitimate
+        name: stable-bridging-v4.0.0-accurate
         path: build/libs/*.jar
