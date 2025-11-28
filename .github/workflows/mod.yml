@@ -54,7 +54,6 @@ jobs:
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-        import java.util.List;
         @Mixin(ClientPlayerEntity.class)
         public class ClientPlayerEntityMixin {
             @Inject(method = "tick", at = @At("HEAD"))
@@ -73,8 +72,7 @@ jobs:
                 }
                 Entity target = null;
                 double closestDist = 4.5;
-                List<Entity> entities = client.world.getEntities();
-                for (Entity e : entities) {
+                for (Entity e : client.world.getEntities()) {
                     if (!(e instanceof LivingEntity)) continue;
                     if (e == player) continue;
                     if (e.isSpectator()) continue;
