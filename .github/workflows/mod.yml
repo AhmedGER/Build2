@@ -1,5 +1,5 @@
 # .github/workflows/build-mod.yml
-name: Build Combat Mod
+name: Build Combat Mod with Config
 
 on:
   workflow_dispatch:
@@ -21,20 +21,146 @@ jobs:
         gradle-version: 6.9
     
     - name: Create project structure
-      run: mkdir -p src/main/{java/com/example/combat/mixin,resources}
+      run: mkdir -p src/main/{java/com/example/combat/{mixin,config},resources}
     
     - name: Create CombatMod.java
       run: |
         cat > src/main/java/com/example/combat/CombatMod.java << 'END'
         package com.example.combat;
+        import com.example.combat.config.CombatConfig;
+        import com.example.combat.config.ConfigScreen;
         import net.fabricmc.api.ClientModInitializer;
+        import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
+        import net.minecraft.client.option.KeyBinding;
+        import net.minecraft.client.util.InputUtil;
+        import org.lwjgl.glfw.GLFW;
         public class CombatMod implements ClientModInitializer {
             public static final String MOD_ID = "combat";
+            public static CombatConfig config = new CombatConfig();
+            public static KeyBinding toggleKey;
+            public static KeyBinding configKey;
             public static boolean enabled = false;
             public static int attackDelay = 0;
             @Override
             public void onInitializeClient() {
-                System.out.println("[Combat Mod] Loaded! Press R to toggle");
+                config.load();
+                toggleKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                    "key.combat.toggle",
+                    InputUtil.Type.KEYSYM,
+                    GLFW.GLFW_KEY_R,
+                    "category.combat"
+                ));
+                configKey = KeyBindingHelper.registerKeyBinding(new KeyBinding(
+                    "key.combat.config",
+                    InputUtil.Type.KEYSYM,
+                    GLFW.GLFW_KEY_RIGHT_SHIFT,
+                    "category.combat"
+                ));
+                System.out.println("[Combat Mod] Loaded! Press R=Toggle, RShift=Config");
+            }
+        }
+        END
+    
+    - name: Create CombatConfig.java
+      run: |
+        cat > src/main/java/com/example/combat/config/CombatConfig.java << 'END'
+        package com.example.combat.config;
+        import com.google.gson.Gson;
+        import com.google.gson.GsonBuilder;
+        import java.io.*;
+        import java.nio.file.*;
+        public class CombatConfig {
+            public boolean autoAttack = true;
+            public boolean autoAim = true;
+            public double range = 4.5;
+            public int attackSpeed = 2;
+            private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+            private static final Path CONFIG_PATH = Paths.get("config", "combat-mod.json");
+            public void load() {
+                try {
+                    if (Files.exists(CONFIG_PATH)) {
+                        String json = new String(Files.readAllBytes(CONFIG_PATH));
+                        CombatConfig loaded = GSON.fromJson(json, CombatConfig.class);
+                        this.autoAttack = loaded.autoAttack;
+                        this.autoAim = loaded.autoAim;
+                        this.range = loaded.range;
+                        this.attackSpeed = loaded.attackSpeed;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+            public void save() {
+                try {
+                    Files.createDirectories(CONFIG_PATH.getParent());
+                    String json = GSON.toJson(this);
+                    Files.write(CONFIG_PATH, json.getBytes());
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+        END
+    
+    - name: Create ConfigScreen.java
+      run: |
+        cat > src/main/java/com/example/combat/config/ConfigScreen.java << 'END'
+        package com.example.combat.config;
+        import com.example.combat.CombatMod;
+        import net.minecraft.client.gui.screen.Screen;
+        import net.minecraft.client.gui.widget.ButtonWidget;
+        import net.minecraft.client.util.math.MatrixStack;
+        import net.minecraft.text.LiteralText;
+        import net.minecraft.text.Text;
+        public class ConfigScreen extends Screen {
+            private final Screen parent;
+            public ConfigScreen(Screen parent) {
+                super(new LiteralText("Combat Config"));
+                this.parent = parent;
+            }
+            @Override
+            protected void init() {
+                int y = this.height / 4;
+                this.addButton(new ButtonWidget(this.width / 2 - 100, y, 200, 20,
+                    new LiteralText("Auto Attack: " + (CombatMod.config.autoAttack ? "ON" : "OFF")),
+                    button -> {
+                        CombatMod.config.autoAttack = !CombatMod.config.autoAttack;
+                        button.setMessage(new LiteralText("Auto Attack: " + (CombatMod.config.autoAttack ? "ON" : "OFF")));
+                        CombatMod.config.save();
+                    }));
+                this.addButton(new ButtonWidget(this.width / 2 - 100, y + 25, 200, 20,
+                    new LiteralText("Auto Aim: " + (CombatMod.config.autoAim ? "ON" : "OFF")),
+                    button -> {
+                        CombatMod.config.autoAim = !CombatMod.config.autoAim;
+                        button.setMessage(new LiteralText("Auto Aim: " + (CombatMod.config.autoAim ? "ON" : "OFF")));
+                        CombatMod.config.save();
+                    }));
+                this.addButton(new ButtonWidget(this.width / 2 - 100, y + 50, 200, 20,
+                    new LiteralText("Range: " + CombatMod.config.range),
+                    button -> {
+                        CombatMod.config.range += 0.5;
+                        if (CombatMod.config.range > 6.0) CombatMod.config.range = 3.0;
+                        button.setMessage(new LiteralText("Range: " + CombatMod.config.range));
+                        CombatMod.config.save();
+                    }));
+                this.addButton(new ButtonWidget(this.width / 2 - 100, y + 75, 200, 20,
+                    new LiteralText("Speed: " + CombatMod.config.attackSpeed + " ticks"),
+                    button -> {
+                        CombatMod.config.attackSpeed++;
+                        if (CombatMod.config.attackSpeed > 10) CombatMod.config.attackSpeed = 1;
+                        button.setMessage(new LiteralText("Speed: " + CombatMod.config.attackSpeed + " ticks"));
+                        CombatMod.config.save();
+                    }));
+                this.addButton(new ButtonWidget(this.width / 2 - 100, y + 105, 200, 20,
+                    new LiteralText("Done"),
+                    button -> this.client.openScreen(this.parent)));
+            }
+            @Override
+            public void render(MatrixStack matrices, int mouseX, int mouseY, float delta) {
+                this.renderBackground(matrices);
+                drawCenteredText(matrices, this.textRenderer, this.title, this.width / 2, 20, 16777215);
+                drawCenteredText(matrices, this.textRenderer, "Press R to Toggle ON/OFF", this.width / 2, 40, 11184810);
+                super.render(matrices, mouseX, mouseY, delta);
             }
         }
         END
@@ -44,10 +170,12 @@ jobs:
         cat > src/main/java/com/example/combat/mixin/ClientPlayerEntityMixin.java << 'END'
         package com.example.combat.mixin;
         import com.example.combat.CombatMod;
+        import com.example.combat.config.ConfigScreen;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.network.ClientPlayerEntity;
         import net.minecraft.entity.Entity;
         import net.minecraft.entity.LivingEntity;
+        import net.minecraft.text.LiteralText;
         import net.minecraft.util.Hand;
         import net.minecraft.util.math.Vec3d;
         import org.spongepowered.asm.mixin.Mixin;
@@ -60,10 +188,13 @@ jobs:
             private void onTick(CallbackInfo ci) {
                 ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
                 MinecraftClient client = MinecraftClient.getInstance();
-                if (client.world == null || client.options == null) return;
-                if (client.options.keyDrop.wasPressed()) {
+                if (client.world == null) return;
+                if (CombatMod.toggleKey.wasPressed()) {
                     CombatMod.enabled = !CombatMod.enabled;
-                    player.sendMessage(net.minecraft.text.Text.of("Combat: " + (CombatMod.enabled ? "ON" : "OFF")), true);
+                    player.sendMessage(new LiteralText("Combat: " + (CombatMod.enabled ? "§aON" : "§cOFF")), true);
+                }
+                if (CombatMod.configKey.wasPressed()) {
+                    client.openScreen(new ConfigScreen(client.currentScreen));
                 }
                 if (!CombatMod.enabled) return;
                 if (CombatMod.attackDelay > 0) {
@@ -71,7 +202,7 @@ jobs:
                     return;
                 }
                 Entity target = null;
-                double closestDist = 4.5;
+                double closestDist = CombatMod.config.range;
                 for (Entity e : client.world.getEntities()) {
                     if (!(e instanceof LivingEntity)) continue;
                     if (e == player) continue;
@@ -85,17 +216,19 @@ jobs:
                     }
                 }
                 if (target != null) {
-                    Vec3d targetPos = target.getPos().add(0, target.getHeight() * 0.5, 0);
-                    Vec3d playerPos = player.getPos().add(0, player.getStandingEyeHeight(), 0);
-                    Vec3d direction = targetPos.subtract(playerPos).normalize();
-                    double yaw = Math.toDegrees(Math.atan2(direction.z, direction.x)) - 90;
-                    double pitch = -Math.toDegrees(Math.asin(direction.y));
-                    player.yaw = (float)yaw;
-                    player.pitch = (float)pitch;
-                    if (client.interactionManager != null) {
+                    if (CombatMod.config.autoAim) {
+                        Vec3d targetPos = target.getPos().add(0, target.getHeight() * 0.5, 0);
+                        Vec3d playerPos = player.getPos().add(0, player.getStandingEyeHeight(), 0);
+                        Vec3d direction = targetPos.subtract(playerPos).normalize();
+                        double yaw = Math.toDegrees(Math.atan2(direction.z, direction.x)) - 90;
+                        double pitch = -Math.toDegrees(Math.asin(direction.y));
+                        player.yaw = (float)yaw;
+                        player.pitch = (float)pitch;
+                    }
+                    if (CombatMod.config.autoAttack && client.interactionManager != null) {
                         client.interactionManager.attackEntity(player, target);
                         player.swingHand(Hand.MAIN_HAND);
-                        CombatMod.attackDelay = 2;
+                        CombatMod.attackDelay = CombatMod.config.attackSpeed;
                     }
                 }
             }
@@ -108,9 +241,9 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "combat",
-          "version": "1.0.0",
+          "version": "2.0.0",
           "name": "Combat Mod",
-          "description": "Auto aim and attack - Press R to toggle",
+          "description": "Killaura with Config - R=Toggle, RShift=Config",
           "authors": ["AutoBuilder"],
           "license": "MIT",
           "environment": "client",
@@ -149,7 +282,7 @@ jobs:
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
         archivesBaseName = "combat-mod"
-        version = "1.0.1"
+        version = "2.0.0"
         group = "com.example"
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -201,5 +334,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: combat-mod-killaura-v1.0.1-FIXED
+        name: combat-mod-v2.0.0-WITH-CONFIG
         path: build/libs/*.jar
