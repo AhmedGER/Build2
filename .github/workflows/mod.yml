@@ -48,14 +48,13 @@ jobs:
         import net.minecraft.client.network.ClientPlayerEntity;
         import net.minecraft.entity.Entity;
         import net.minecraft.entity.LivingEntity;
-        import net.minecraft.entity.player.PlayerEntity;
         import net.minecraft.util.Hand;
         import net.minecraft.util.math.Vec3d;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-        import java.util.Comparator;
+        import java.util.List;
         @Mixin(ClientPlayerEntity.class)
         public class ClientPlayerEntityMixin {
             @Inject(method = "tick", at = @At("HEAD"))
@@ -63,32 +62,38 @@ jobs:
                 ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
                 MinecraftClient client = MinecraftClient.getInstance();
                 if (client.world == null || client.options == null) return;
-                if (client.options.keyDrop.isPressed()) {
+                if (client.options.keyDrop.wasPressed()) {
                     CombatMod.enabled = !CombatMod.enabled;
                     player.sendMessage(net.minecraft.text.Text.of("Combat: " + (CombatMod.enabled ? "ON" : "OFF")), true);
-                    try { Thread.sleep(200); } catch (Exception e) {}
                 }
                 if (!CombatMod.enabled) return;
                 if (CombatMod.attackDelay > 0) {
                     CombatMod.attackDelay--;
                     return;
                 }
-                Entity target = client.world.getEntities().stream()
-                    .filter(e -> e instanceof LivingEntity)
-                    .filter(e -> e != player)
-                    .filter(e -> !e.isSpectator())
-                    .filter(e -> ((LivingEntity)e).getHealth() > 0)
-                    .filter(e -> player.distanceTo(e) <= 4.5)
-                    .min(Comparator.comparingDouble(player::distanceTo))
-                    .orElse(null);
+                Entity target = null;
+                double closestDist = 4.5;
+                List<Entity> entities = client.world.getEntities();
+                for (Entity e : entities) {
+                    if (!(e instanceof LivingEntity)) continue;
+                    if (e == player) continue;
+                    if (e.isSpectator()) continue;
+                    LivingEntity le = (LivingEntity)e;
+                    if (le.getHealth() <= 0) continue;
+                    double dist = player.distanceTo(e);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        target = e;
+                    }
+                }
                 if (target != null) {
                     Vec3d targetPos = target.getPos().add(0, target.getHeight() * 0.5, 0);
                     Vec3d playerPos = player.getPos().add(0, player.getStandingEyeHeight(), 0);
                     Vec3d direction = targetPos.subtract(playerPos).normalize();
                     double yaw = Math.toDegrees(Math.atan2(direction.z, direction.x)) - 90;
                     double pitch = -Math.toDegrees(Math.asin(direction.y));
-                    player.setYaw((float)yaw);
-                    player.setPitch((float)pitch);
+                    player.yaw = (float)yaw;
+                    player.pitch = (float)pitch;
                     if (client.interactionManager != null) {
                         client.interactionManager.attackEntity(player, target);
                         player.swingHand(Hand.MAIN_HAND);
@@ -146,7 +151,7 @@ jobs:
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
         archivesBaseName = "combat-mod"
-        version = "1.0.0"
+        version = "1.0.1"
         group = "com.example"
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -198,5 +203,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: combat-mod-killaura-v1.0.0
+        name: combat-mod-killaura-v1.0.1-FIXED
         path: build/libs/*.jar
