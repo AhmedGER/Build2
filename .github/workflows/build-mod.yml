@@ -198,11 +198,12 @@ jobs:
                         player.swingHand(Hand.MAIN_HAND);
                         BridgingMod.lastPlaced = targetPos;
                         
-                        // Cooldown متوازن
-                        BridgingMod.cooldown = player.isOnGround() ? 1 : 0;
+                        // Cooldown = سرعة لاعب ماهر (8-12 بلوكة/ثانية)
+                        // 2 ticks = 10 بلوكات/ثانية (ممتاز!)
+                        BridgingMod.cooldown = 2;
                     } else {
                         // فشل - استنى شوية
-                        BridgingMod.cooldown = 2;
+                        BridgingMod.cooldown = 4;
                     }
                 }
             }
@@ -242,9 +243,9 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "bridging",
-          "version": "6.0.0",
+          "version": "6.0.1",
           "name": "Fast Bridging Helper",
-          "description": "Quick and reliable bridging with proper adjacent placement",
+          "description": "Human-speed bridging (10 blocks/sec) with proper placement",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
@@ -285,7 +286,7 @@ jobs:
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
         archivesBaseName = "fast-bridging"
-        version = "6.0.0"
+        version = "6.0.1"
         group = "com.example"
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -352,5 +353,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: fast-bridging-v6.0.0-final
+        name: fast-bridging-v6.0.1-human-speed
         path: build/libs/*.jar
