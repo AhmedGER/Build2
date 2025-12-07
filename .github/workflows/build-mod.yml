@@ -1,5 +1,5 @@
 # .github/workflows/build-mod.yml
-name: Build Bridging Mod (Final Stable)
+name: Build Bridging Mod (Vanilla Speed)
 
 on:
   workflow_dispatch:
@@ -37,200 +37,47 @@ jobs:
         cat << 'EOF' > src/main/java/com/example/bridging/BridgingMod.java
         package com.example.bridging;
         import net.fabricmc.api.ClientModInitializer;
-        import net.minecraft.util.math.BlockPos;
         public class BridgingMod implements ClientModInitializer {
             public static final String MOD_ID = "bridging";
-            public static int cooldown = 0;
-            public static BlockPos lastPlaced = null;
             @Override
             public void onInitializeClient() {
-                System.out.println("[Bridging Helper] Hold RIGHT CLICK to bridge!");
+                System.out.println("[Simple Bridging] Removes 4-tick placement delay!");
             }
         }
         EOF
     
-    - name: Write ClientPlayerEntityMixin.java
+    - name: Write MinecraftClientMixin.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/example/bridging/mixin/ClientPlayerEntityMixin.java
+        cat << 'EOF' > src/main/java/com/example/bridging/mixin/MinecraftClientMixin.java
         package com.example.bridging.mixin;
-        import com.example.bridging.BridgingMod;
-        import net.minecraft.block.BlockState;
         import net.minecraft.client.MinecraftClient;
-        import net.minecraft.client.network.ClientPlayerEntity;
-        import net.minecraft.item.BlockItem;
-        import net.minecraft.item.ItemStack;
-        import net.minecraft.util.ActionResult;
-        import net.minecraft.util.Hand;
-        import net.minecraft.util.hit.BlockHitResult;
-        import net.minecraft.util.math.BlockPos;
-        import net.minecraft.util.math.Direction;
-        import net.minecraft.util.math.Vec3d;
         import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.Shadow;
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-        @Mixin(ClientPlayerEntity.class)
-        public class ClientPlayerEntityMixin {
+        @Mixin(MinecraftClient.class)
+        public class MinecraftClientMixin {
+            @Shadow
+            private int itemUseCooldown;
+            
+            /**
+             * في vanilla Minecraft، لما تضغط Right Click مستمر:
+             * - itemUseCooldown بيبدأ بـ 4 ticks
+             * - كل tick بينقص واحد
+             * - لما يوصل 0، تقدر تحط بلوك تاني
+             * 
+             * المود ده ببساطة بيخلي الـ cooldown = 0 دايماً
+             * عشان تقدر تحط بلوكات بسرعة أكبر لما أنت عايز
+             * بس بدون أي تدخل في الـ placement logic نفسه
+             */
             @Inject(method = "tick", at = @At("HEAD"))
             private void onTick(CallbackInfo ci) {
-                ClientPlayerEntity player = (ClientPlayerEntity)(Object)this;
-                MinecraftClient client = MinecraftClient.getInstance();
-                
-                if (client.world == null || client.options == null) return;
-                
-                // Reset عند رفع الزر
-                if (!client.options.keyUse.isPressed()) {
-                    BridgingMod.cooldown = 0;
-                    return;
-                }
-                
-                // لازم يكون ماسك بلوك
-                ItemStack held = player.getMainHandStack();
-                if (!(held.getItem() instanceof BlockItem)) {
-                    BridgingMod.lastPlaced = null;
-                    return;
-                }
-                
-                // Cooldown check
-                if (BridgingMod.cooldown > 0) {
-                    BridgingMod.cooldown--;
-                    return;
-                }
-                
-                // الموقع المستهدف (تحت اللاعب)
-                BlockPos targetPos = player.getBlockPos().down();
-                BlockState targetBlock = client.world.getBlockState(targetPos);
-                
-                // لو البلوك موجود، update last placed
-                if (!targetBlock.isAir()) {
-                    BridgingMod.lastPlaced = targetPos;
-                    return;
-                }
-                
-                // ★ الخطوة الأهم: لاقي أقرب بلوك صلب حوالين الهدف
-                Direction playerFacing = player.getHorizontalFacing();
-                BlockPos sourceBlock = null;
-                Direction hitFace = null;
-                
-                // جرب الأولويات بالترتيب
-                // 1. البلوك اللي خلف الهدف (في اتجاه معاكس لاتجاه اللاعب)
-                Direction behind = playerFacing.getOpposite();
-                BlockPos behindPos = targetPos.offset(behind);
-                if (isSolidBlock(client, behindPos)) {
-                    sourceBlock = behindPos;
-                    hitFace = playerFacing; // نحط على الوجه الأمامي للبلوك اللي ورانا
-                }
-                
-                // 2. لو مفيش، جرب تحت
-                if (sourceBlock == null) {
-                    BlockPos belowPos = targetPos.down();
-                    if (isSolidBlock(client, belowPos)) {
-                        sourceBlock = belowPos;
-                        hitFace = Direction.UP; // نحط على الوجه العلوي
-                    }
-                }
-                
-                // 3. لو مفيش، جرب الجوانب
-                if (sourceBlock == null) {
-                    Direction[] sides = {
-                        behind.rotateYCounterclockwise(), // يسار
-                        behind.rotateYClockwise()          // يمين
-                    };
-                    
-                    for (Direction side : sides) {
-                        BlockPos sidePos = targetPos.offset(side);
-                        if (isSolidBlock(client, sidePos)) {
-                            sourceBlock = sidePos;
-                            hitFace = side.getOpposite();
-                            break;
-                        }
-                    }
-                }
-                
-                // 4. آخر محاولة: استخدم last placed block
-                if (sourceBlock == null && BridgingMod.lastPlaced != null) {
-                    if (isSolidBlock(client, BridgingMod.lastPlaced)) {
-                        sourceBlock = BridgingMod.lastPlaced;
-                        hitFace = calculateFaceBetween(BridgingMod.lastPlaced, targetPos);
-                    } else {
-                        // البلوك القديم اختفى (ghost block)
-                        BridgingMod.lastPlaced = null;
-                        BridgingMod.cooldown = 4; // استنى أطول
-                        return;
-                    }
-                }
-                
-                // مفيش بلوك صلب قريب
-                if (sourceBlock == null || hitFace == null) {
-                    return;
-                }
-                
-                // تحقق من المسافة
-                double distance = player.getPos().distanceTo(Vec3d.ofCenter(sourceBlock));
-                if (distance > 4.5) return;
-                
-                // ★ إنشاء hit point صحيح على الوجه المناسب
-                Vec3d hitPoint = Vec3d.ofCenter(sourceBlock).add(
-                    hitFace.getOffsetX() * 0.5,
-                    hitFace.getOffsetY() * 0.5,
-                    hitFace.getOffsetZ() * 0.5
-                );
-                
-                BlockHitResult hitResult = new BlockHitResult(
-                    hitPoint,
-                    hitFace,
-                    sourceBlock,
-                    false
-                );
-                
-                // حاول تحط البلوك
-                if (client.interactionManager != null) {
-                    ActionResult result = client.interactionManager.interactBlock(
-                        player,
-                        client.world,
-                        Hand.MAIN_HAND,
-                        hitResult
-                    );
-                    
-                    if (result.isAccepted()) {
-                        // نجح! سجل البلوك الجديد
-                        player.swingHand(Hand.MAIN_HAND);
-                        BridgingMod.lastPlaced = targetPos;
-                        
-                        // Cooldown = سرعة لاعب ماهر (8-12 بلوكة/ثانية)
-                        // 2 ticks = 10 بلوكات/ثانية (ممتاز!)
-                        BridgingMod.cooldown = 2;
-                    } else {
-                        // فشل - استنى شوية
-                        BridgingMod.cooldown = 4;
-                    }
-                }
-            }
-            
-            /**
-             * تحقق من أن البلوك صلب وصالح
-             */
-            private boolean isSolidBlock(MinecraftClient client, BlockPos pos) {
-                BlockState state = client.world.getBlockState(pos);
-                return !state.isAir() && state.isSolidBlock(client.world, pos);
-            }
-            
-            /**
-             * احسب الوجه المناسب بين بلوكين
-             */
-            private Direction calculateFaceBetween(BlockPos from, BlockPos to) {
-                int dx = to.getX() - from.getX();
-                int dy = to.getY() - from.getY();
-                int dz = to.getZ() - from.getZ();
-                
-                // أعطي أولوية للاتجاهات الأفقية
-                if (Math.abs(dx) >= Math.abs(dy) && Math.abs(dx) >= Math.abs(dz)) {
-                    return dx > 0 ? Direction.EAST : Direction.WEST;
-                } else if (Math.abs(dz) >= Math.abs(dy)) {
-                    return dz > 0 ? Direction.SOUTH : Direction.NORTH;
-                } else {
-                    return dy > 0 ? Direction.UP : Direction.DOWN;
+                // لو اللاعب بيحاول يحط حاجة
+                if (this.itemUseCooldown > 0) {
+                    // خلي الـ cooldown = 0 عشان يقدر يحط فوراً
+                    this.itemUseCooldown = 0;
                 }
             }
         }
@@ -243,9 +90,9 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "bridging",
-          "version": "6.0.1",
-          "name": "Fast Bridging Helper",
-          "description": "Human-speed bridging (10 blocks/sec) with proper placement",
+          "version": "7.0.0",
+          "name": "Zero Delay Bridging",
+          "description": "Removes vanilla 4-tick placement delay - YOU control placement",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
@@ -270,7 +117,7 @@ jobs:
           "minVersion": "0.8",
           "package": "com.example.bridging.mixin",
           "compatibilityLevel": "JAVA_8",
-          "client": ["ClientPlayerEntityMixin"],
+          "client": ["MinecraftClientMixin"],
           "injectors": {"defaultRequire": 1}
         }
         EOF
@@ -285,8 +132,8 @@ jobs:
         }
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-        archivesBaseName = "fast-bridging"
-        version = "6.0.1"
+        archivesBaseName = "zero-delay-bridging"
+        version = "7.0.0"
         group = "com.example"
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -327,7 +174,7 @@ jobs:
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'fast-bridging'
+        rootProject.name = 'zero-delay-bridging'
         EOF
     
     - name: Create Gradle Wrapper
@@ -353,5 +200,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: fast-bridging-v6.0.1-human-speed
+        name: zero-delay-bridging-v7.0.0-vanilla-placement
         path: build/libs/*.jar
