@@ -1,4 +1,4 @@
-name: Build Smart Bridging Mod (Left ALT + Right Click)
+name: Build Smart Bridging Mod (Left ALT + Right Click) - Fixed for 1.16.5
 
 on:
   workflow_dispatch:
@@ -37,41 +37,14 @@ jobs:
         package com.smartbridge;
         
         import net.fabricmc.api.ClientModInitializer;
-        import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
-        import net.minecraft.client.MinecraftClient;
-        import net.minecraft.text.Text;
-        import org.lwjgl.glfw.GLFW;
         
         public class SmartBridgeMod implements ClientModInitializer {
             public static final String MOD_ID = "smartbridge";
             public static boolean isEnabled = false;
-            private static boolean wasAltPressed = false;
             
             @Override
             public void onInitializeClient() {
                 System.out.println("[Smart Bridge] Mod loaded! Press LEFT ALT to toggle!");
-                
-                ClientTickEvents.END_CLIENT_TICK.register(client -> {
-                    if (client.player == null) return;
-                    
-                    // Check if Left ALT is pressed
-                    boolean isAltPressed = GLFW.glfwGetKey(
-                        client.getWindow().getHandle(), 
-                        GLFW.GLFW_KEY_LEFT_ALT
-                    ) == GLFW.GLFW_PRESS;
-                    
-                    // Toggle on key press (not hold)
-                    if (isAltPressed && !wasAltPressed) {
-                        isEnabled = !isEnabled;
-                        String status = isEnabled ? "§aON" : "§cOFF";
-                        client.player.sendMessage(
-                            Text.of("§6[Smart Bridge] " + status), 
-                            true // actionBar
-                        );
-                    }
-                    
-                    wasAltPressed = isAltPressed;
-                });
             }
         }
         EOF
@@ -85,10 +58,8 @@ jobs:
         import com.smartbridge.SmartBridgeMod;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.network.ClientPlayerEntity;
-        import net.minecraft.util.hit.BlockHitResult;
-        import net.minecraft.util.hit.HitResult;
-        import net.minecraft.util.math.BlockPos;
-        import net.minecraft.util.math.Vec3d;
+        import net.minecraft.text.LiteralText;
+        import org.lwjgl.glfw.GLFW;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.Shadow;
         import org.spongepowered.asm.mixin.injection.At;
@@ -100,51 +71,67 @@ jobs:
             @Shadow
             public ClientPlayerEntity player;
             
-            @Shadow
-            public HitResult crosshairTarget;
+            private boolean wasAltPressed = false;
             
             /**
-             * المود الذكي للـ Bridging!
+             * المود الذكي للـ Bridging - متوافق مع 1.16.5!
              * 
-             * الفكرة:
-             * 1. اللاعب يدوس Left ALT عشان يفعل المود
-             * 2. لما يدوس Right Click (وهو شايل بلوكات)
-             * 3. المود يحسب الزاوية الصحيحة ويلف اللاعب
-             * 4. اللاعب يحط البلوك بنفسه في المكان الصح
+             * طريقة الاستخدام:
+             * 1. اضغط Left ALT لتفعيل/إيقاف المود
+             * 2. اضغط Right Click وانت شايل بلوكات
+             * 3. المود يلفك للزاوية الصحيحة تلقائياً
+             * 4. حط البلوك بنفسك!
              */
+            @Inject(method = "tick", at = @At("HEAD"))
+            private void onClientTick(CallbackInfo ci) {
+                if (this.player == null) return;
+                
+                MinecraftClient client = (MinecraftClient)(Object)this;
+                
+                // فحص زر Left ALT
+                boolean isAltPressed = GLFW.glfwGetKey(
+                    client.getWindow().getHandle(), 
+                    GLFW.GLFW_KEY_LEFT_ALT
+                ) == GLFW.GLFW_PRESS;
+                
+                // Toggle المود عند الضغط (مش عند المسك)
+                if (isAltPressed && !wasAltPressed) {
+                    SmartBridgeMod.isEnabled = !SmartBridgeMod.isEnabled;
+                    String status = SmartBridgeMod.isEnabled ? "§a§lON" : "§c§lOFF";
+                    this.player.sendMessage(
+                        new LiteralText("§6§l[Smart Bridge] " + status), 
+                        true
+                    );
+                }
+                
+                wasAltPressed = isAltPressed;
+            }
+            
             @Inject(method = "doItemUse", at = @At("HEAD"))
             private void onRightClick(CallbackInfo ci) {
                 if (!SmartBridgeMod.isEnabled) return;
-                if (player == null) return;
+                if (this.player == null) return;
                 
-                // تحقق إن اللاعب شايل بلوكات
-                if (player.getMainHandStack().isEmpty()) return;
+                // تأكد إن اللاعب شايل حاجة في إيده
+                if (this.player.getMainHandStack().isEmpty()) return;
                 
-                // اتجاه اللاعب الحالي
-                float currentYaw = player.getYaw();
-                
-                // حساب الاتجاه للـ bridging
-                // نحدد أقرب اتجاه (North, South, East, West)
+                // حساب الزاوية المثالية للـ bridging
+                float currentYaw = this.player.getYaw();
                 float targetYaw = getClosestCardinalDirection(currentYaw);
+                float targetPitch = 75.0f; // الزاوية المثالية للـ bridging
                 
-                // الـ Pitch المثالي للـ bridging (ننزل شوية عشان نشوف الحافة)
-                float targetPitch = 75.0f; // زاوية مناسبة للـ bridging
-                
-                // نلف اللاعب تدريجياً للزاوية الصحيحة
+                // تطبيق الدوران
                 smoothRotate(targetYaw, targetPitch);
             }
             
             /**
-             * حساب أقرب اتجاه كاردينال (شمال، جنوب، شرق، غرب)
+             * حساب أقرب اتجاه أساسي (0°, 90°, 180°, 270°)
              */
             private float getClosestCardinalDirection(float yaw) {
-                // تطبيع الزاوية (0-360)
-                yaw = yaw % 360;
-                if (yaw < 0) yaw += 360;
+                yaw = yaw % 360.0f;
+                if (yaw < 0) yaw += 360.0f;
                 
-                // الاتجاهات الأساسية
-                float[] directions = {0, 90, 180, 270}; // South, West, North, East
-                
+                float[] directions = {0.0f, 90.0f, 180.0f, 270.0f};
                 float closest = directions[0];
                 float minDiff = Math.abs(angleDifference(yaw, directions[0]));
                 
@@ -163,9 +150,9 @@ jobs:
              * حساب الفرق بين زاويتين
              */
             private float angleDifference(float a, float b) {
-                float diff = (a - b) % 360;
-                if (diff > 180) diff -= 360;
-                if (diff < -180) diff += 360;
+                float diff = (a - b) % 360.0f;
+                if (diff > 180.0f) diff -= 360.0f;
+                if (diff < -180.0f) diff += 360.0f;
                 return diff;
             }
             
@@ -173,28 +160,25 @@ jobs:
              * تدوير اللاعب بسلاسة
              */
             private void smoothRotate(float targetYaw, float targetPitch) {
-                if (player == null) return;
+                if (this.player == null) return;
                 
-                float currentYaw = player.getYaw();
-                float currentPitch = player.getPitch();
+                float currentYaw = this.player.getYaw();
+                float currentPitch = this.player.getPitch();
                 
-                // سرعة الدوران (كل ما زادت، كل ما الدوران بقى أسرع)
-                float rotationSpeed = 0.3f;
+                // سرعة الدوران (أكبر = أسرع)
+                float rotationSpeed = 0.35f;
                 
-                // حساب الفرق
                 float yawDiff = angleDifference(targetYaw, currentYaw);
                 float pitchDiff = targetPitch - currentPitch;
                 
-                // تطبيق الدوران التدريجي
                 float newYaw = currentYaw + (yawDiff * rotationSpeed);
                 float newPitch = currentPitch + (pitchDiff * rotationSpeed);
                 
-                // تحديد الـ pitch (ما يزيدش عن 90 أو -90)
-                newPitch = Math.max(-90, Math.min(90, newPitch));
+                // تحديد pitch في النطاق الصحيح
+                newPitch = Math.max(-90.0f, Math.min(90.0f, newPitch));
                 
-                // تطبيق الدوران
-                player.setYaw(newYaw);
-                player.setPitch(newPitch);
+                this.player.setYaw(newYaw);
+                this.player.setPitch(newPitch);
             }
         }
         EOF
@@ -206,9 +190,9 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "smartbridge",
-          "version": "1.0.0",
+          "version": "1.0.1",
           "name": "Smart Bridging Assistant",
-          "description": "Press LEFT ALT to toggle, then Right Click to auto-rotate for perfect bridging angle!",
+          "description": "Press LEFT ALT to toggle, then Right Click to auto-rotate for perfect bridging!",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
@@ -218,7 +202,6 @@ jobs:
           "mixins": ["smartbridge.mixins.json"],
           "depends": {
             "fabricloader": ">=0.11.0",
-            "fabric": "*",
             "minecraft": "1.16.5"
           }
         }
@@ -251,22 +234,17 @@ jobs:
         targetCompatibility = JavaVersion.VERSION_1_8
         
         archivesBaseName = "smart-bridging-assistant"
-        version = "1.0.0"
+        version = "1.0.1"
         group = "com.smartbridge"
         
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
-            maven {
-                url 'https://www.cursemaven.com'
-                content { includeGroup "curse.maven" }
-            }
         }
         
         dependencies {
             minecraft "com.mojang:minecraft:1.16.5"
             mappings "net.fabricmc:yarn:1.16.5+build.10:v2"
             modImplementation "net.fabricmc:fabric-loader:0.11.3"
-            modImplementation "curse.maven:fabric-api-306612:3516413"
         }
         
         processResources {
@@ -335,5 +313,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: smart-bridging-assistant-v1.0.0
+        name: smart-bridging-assistant-v1.0.1-FIXED
         path: build/libs/*.jar
