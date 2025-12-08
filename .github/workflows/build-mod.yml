@@ -1,5 +1,4 @@
-# .github/workflows/build-mod.yml
-name: Build Bridging Mod (Vanilla Speed)
+name: Build Smart Bridging Mod (Left ALT + Right Click)
 
 on:
   workflow_dispatch:
@@ -28,20 +27,51 @@ jobs:
     
     - name: Create directories
       run: |
-        mkdir -p src/main/java/com/example/bridging/mixin
+        mkdir -p src/main/java/com/smartbridge/mixin
         mkdir -p src/main/resources
     
-    - name: Write BridgingMod.java
+    - name: Write SmartBridgeMod.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/example/bridging/BridgingMod.java
-        package com.example.bridging;
+        cat << 'EOF' > src/main/java/com/smartbridge/SmartBridgeMod.java
+        package com.smartbridge;
+        
         import net.fabricmc.api.ClientModInitializer;
-        public class BridgingMod implements ClientModInitializer {
-            public static final String MOD_ID = "bridging";
+        import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
+        import net.minecraft.client.MinecraftClient;
+        import net.minecraft.text.Text;
+        import org.lwjgl.glfw.GLFW;
+        
+        public class SmartBridgeMod implements ClientModInitializer {
+            public static final String MOD_ID = "smartbridge";
+            public static boolean isEnabled = false;
+            private static boolean wasAltPressed = false;
+            
             @Override
             public void onInitializeClient() {
-                System.out.println("[Simple Bridging] Removes 4-tick placement delay!");
+                System.out.println("[Smart Bridge] Mod loaded! Press LEFT ALT to toggle!");
+                
+                ClientTickEvents.END_CLIENT_TICK.register(client -> {
+                    if (client.player == null) return;
+                    
+                    // Check if Left ALT is pressed
+                    boolean isAltPressed = GLFW.glfwGetKey(
+                        client.getWindow().getHandle(), 
+                        GLFW.GLFW_KEY_LEFT_ALT
+                    ) == GLFW.GLFW_PRESS;
+                    
+                    // Toggle on key press (not hold)
+                    if (isAltPressed && !wasAltPressed) {
+                        isEnabled = !isEnabled;
+                        String status = isEnabled ? "§aON" : "§cOFF";
+                        client.player.sendMessage(
+                            Text.of("§6[Smart Bridge] " + status), 
+                            true // actionBar
+                        );
+                    }
+                    
+                    wasAltPressed = isAltPressed;
+                });
             }
         }
         EOF
@@ -49,36 +79,122 @@ jobs:
     - name: Write MinecraftClientMixin.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/example/bridging/mixin/MinecraftClientMixin.java
-        package com.example.bridging.mixin;
+        cat << 'EOF' > src/main/java/com/smartbridge/mixin/MinecraftClientMixin.java
+        package com.smartbridge.mixin;
+        
+        import com.smartbridge.SmartBridgeMod;
         import net.minecraft.client.MinecraftClient;
+        import net.minecraft.client.network.ClientPlayerEntity;
+        import net.minecraft.util.hit.BlockHitResult;
+        import net.minecraft.util.hit.HitResult;
+        import net.minecraft.util.math.BlockPos;
+        import net.minecraft.util.math.Vec3d;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.Shadow;
         import org.spongepowered.asm.mixin.injection.At;
         import org.spongepowered.asm.mixin.injection.Inject;
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
+        
         @Mixin(MinecraftClient.class)
         public class MinecraftClientMixin {
             @Shadow
-            private int itemUseCooldown;
+            public ClientPlayerEntity player;
+            
+            @Shadow
+            public HitResult crosshairTarget;
             
             /**
-             * في vanilla Minecraft، لما تضغط Right Click مستمر:
-             * - itemUseCooldown بيبدأ بـ 4 ticks
-             * - كل tick بينقص واحد
-             * - لما يوصل 0، تقدر تحط بلوك تاني
+             * المود الذكي للـ Bridging!
              * 
-             * المود ده ببساطة بيخلي الـ cooldown = 0 دايماً
-             * عشان تقدر تحط بلوكات بسرعة أكبر لما أنت عايز
-             * بس بدون أي تدخل في الـ placement logic نفسه
+             * الفكرة:
+             * 1. اللاعب يدوس Left ALT عشان يفعل المود
+             * 2. لما يدوس Right Click (وهو شايل بلوكات)
+             * 3. المود يحسب الزاوية الصحيحة ويلف اللاعب
+             * 4. اللاعب يحط البلوك بنفسه في المكان الصح
              */
-            @Inject(method = "tick", at = @At("HEAD"))
-            private void onTick(CallbackInfo ci) {
-                // لو اللاعب بيحاول يحط حاجة
-                if (this.itemUseCooldown > 0) {
-                    // خلي الـ cooldown = 0 عشان يقدر يحط فوراً
-                    this.itemUseCooldown = 0;
+            @Inject(method = "doItemUse", at = @At("HEAD"))
+            private void onRightClick(CallbackInfo ci) {
+                if (!SmartBridgeMod.isEnabled) return;
+                if (player == null) return;
+                
+                // تحقق إن اللاعب شايل بلوكات
+                if (player.getMainHandStack().isEmpty()) return;
+                
+                // اتجاه اللاعب الحالي
+                float currentYaw = player.getYaw();
+                
+                // حساب الاتجاه للـ bridging
+                // نحدد أقرب اتجاه (North, South, East, West)
+                float targetYaw = getClosestCardinalDirection(currentYaw);
+                
+                // الـ Pitch المثالي للـ bridging (ننزل شوية عشان نشوف الحافة)
+                float targetPitch = 75.0f; // زاوية مناسبة للـ bridging
+                
+                // نلف اللاعب تدريجياً للزاوية الصحيحة
+                smoothRotate(targetYaw, targetPitch);
+            }
+            
+            /**
+             * حساب أقرب اتجاه كاردينال (شمال، جنوب، شرق، غرب)
+             */
+            private float getClosestCardinalDirection(float yaw) {
+                // تطبيع الزاوية (0-360)
+                yaw = yaw % 360;
+                if (yaw < 0) yaw += 360;
+                
+                // الاتجاهات الأساسية
+                float[] directions = {0, 90, 180, 270}; // South, West, North, East
+                
+                float closest = directions[0];
+                float minDiff = Math.abs(angleDifference(yaw, directions[0]));
+                
+                for (float dir : directions) {
+                    float diff = Math.abs(angleDifference(yaw, dir));
+                    if (diff < minDiff) {
+                        minDiff = diff;
+                        closest = dir;
+                    }
                 }
+                
+                return closest;
+            }
+            
+            /**
+             * حساب الفرق بين زاويتين
+             */
+            private float angleDifference(float a, float b) {
+                float diff = (a - b) % 360;
+                if (diff > 180) diff -= 360;
+                if (diff < -180) diff += 360;
+                return diff;
+            }
+            
+            /**
+             * تدوير اللاعب بسلاسة
+             */
+            private void smoothRotate(float targetYaw, float targetPitch) {
+                if (player == null) return;
+                
+                float currentYaw = player.getYaw();
+                float currentPitch = player.getPitch();
+                
+                // سرعة الدوران (كل ما زادت، كل ما الدوران بقى أسرع)
+                float rotationSpeed = 0.3f;
+                
+                // حساب الفرق
+                float yawDiff = angleDifference(targetYaw, currentYaw);
+                float pitchDiff = targetPitch - currentPitch;
+                
+                // تطبيق الدوران التدريجي
+                float newYaw = currentYaw + (yawDiff * rotationSpeed);
+                float newPitch = currentPitch + (pitchDiff * rotationSpeed);
+                
+                // تحديد الـ pitch (ما يزيدش عن 90 أو -90)
+                newPitch = Math.max(-90, Math.min(90, newPitch));
+                
+                // تطبيق الدوران
+                player.setYaw(newYaw);
+                player.setPitch(newPitch);
             }
         }
         EOF
@@ -89,17 +205,17 @@ jobs:
         cat << 'EOF' > src/main/resources/fabric.mod.json
         {
           "schemaVersion": 1,
-          "id": "bridging",
-          "version": "7.0.0",
-          "name": "Zero Delay Bridging",
-          "description": "Removes vanilla 4-tick placement delay - YOU control placement",
+          "id": "smartbridge",
+          "version": "1.0.0",
+          "name": "Smart Bridging Assistant",
+          "description": "Press LEFT ALT to toggle, then Right Click to auto-rotate for perfect bridging angle!",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
-            "client": ["com.example.bridging.BridgingMod"]
+            "client": ["com.smartbridge.SmartBridgeMod"]
           },
-          "mixins": ["bridging.mixins.json"],
+          "mixins": ["smartbridge.mixins.json"],
           "depends": {
             "fabricloader": ">=0.11.0",
             "fabric": "*",
@@ -108,14 +224,14 @@ jobs:
         }
         EOF
     
-    - name: Write bridging.mixins.json
+    - name: Write smartbridge.mixins.json
       shell: bash
       run: |
-        cat << 'EOF' > src/main/resources/bridging.mixins.json
+        cat << 'EOF' > src/main/resources/smartbridge.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
-          "package": "com.example.bridging.mixin",
+          "package": "com.smartbridge.mixin",
           "compatibilityLevel": "JAVA_8",
           "client": ["MinecraftClientMixin"],
           "injectors": {"defaultRequire": 1}
@@ -130,11 +246,14 @@ jobs:
             id 'fabric-loom' version '0.7-SNAPSHOT'
             id 'maven-publish'
         }
+        
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
-        archivesBaseName = "zero-delay-bridging"
-        version = "7.0.0"
-        group = "com.example"
+        
+        archivesBaseName = "smart-bridging-assistant"
+        version = "1.0.0"
+        group = "com.smartbridge"
+        
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
             maven {
@@ -142,22 +261,33 @@ jobs:
                 content { includeGroup "curse.maven" }
             }
         }
+        
         dependencies {
             minecraft "com.mojang:minecraft:1.16.5"
             mappings "net.fabricmc:yarn:1.16.5+build.10:v2"
             modImplementation "net.fabricmc:fabric-loader:0.11.3"
             modImplementation "curse.maven:fabric-api-306612:3516413"
         }
+        
         processResources {
             inputs.property "version", project.version
-            filesMatching("fabric.mod.json") { expand "version": project.version }
+            filesMatching("fabric.mod.json") {
+                expand "version": project.version
+            }
         }
+        
         tasks.withType(JavaCompile).configureEach {
             it.options.encoding = "UTF-8"
         }
-        java { withSourcesJar() }
+        
+        java {
+            withSourcesJar()
+        }
+        
         jar {
-            from("LICENSE") { rename { "${it}_${project.archivesBaseName}"} }
+            from("LICENSE") {
+                rename { "${it}_${project.archivesBaseName}"}
+            }
         }
         EOF
     
@@ -170,11 +300,14 @@ jobs:
         cat << 'EOF' > settings.gradle
         pluginManagement {
             repositories {
-                maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+                maven {
+                    name = 'Fabric'
+                    url = 'https://maven.fabricmc.net/'
+                }
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'zero-delay-bridging'
+        rootProject.name = 'smart-bridging-assistant'
         EOF
     
     - name: Create Gradle Wrapper
@@ -187,8 +320,10 @@ jobs:
       run: |
         echo "=== Source files ==="
         find src -type f -exec echo {} \; -exec cat {} \;
+        echo ""
         echo "=== Config files ==="
         cat build.gradle
+        echo ""
         cat settings.gradle
     
     - name: Build mod
@@ -200,5 +335,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: zero-delay-bridging-v7.0.0-vanilla-placement
+        name: smart-bridging-assistant-v1.0.0
         path: build/libs/*.jar
