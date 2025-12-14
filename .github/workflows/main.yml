@@ -1,4 +1,4 @@
-name: 🚀 Auto Build Minecraft Chat Hider Pack
+name: 🚀 Auto Build Armor Durability Pack
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-everything:
+  build-durability-pack:
     runs-on: ubuntu-latest
     
     steps:
@@ -25,10 +25,10 @@ jobs:
         import json, zipfile, shutil
         from pathlib import Path
 
-        PACK_NAME = "Chat-Hider-Pack"
-        PACK_DESCRIPTION = "يخفي رسائل الدردشة في ماين كرافت بيدروك"
-        UUID_HEADER = "1642f509-51c7-4aec-93f3-fcd57acee38a"
-        UUID_MODULE = "27d1ca2d-a89e-4be9-aeef-ff188efa5b04"
+        PACK_NAME = "Armor-Durability-Pack"
+        PACK_DESCRIPTION = "يظهر حالة الدروع قبل أن تتكسر"
+        UUID_HEADER = "a1b2c3d4-1111-2222-3333-444455556666"
+        UUID_MODULE = "b7c8d9e0-7777-8888-9999-000011112222"
 
         def create_manifest():
             return {
@@ -49,28 +49,17 @@ jobs:
                 ]
             }
 
-        def create_hud_screen():
+        def create_durability_hud():
             return {
                 "namespace": "hud",
-                "root_panel": {
-                    "modifications": [
-                        {"array_name": "controls","operation": "remove","where": {"name": "chat_panel"}}
-                    ]
-                },
-                "hud_content": {
-                    "modifications": [
-                        {"array_name": "controls","operation": "remove","where": {"name": "chat_panel"}}
-                    ]
+                "durability_panel": {
+                    "type": "label",
+                    "text": "⚔️ Armor Durability: ${item_durability}",
+                    "anchor_from": "top_left",
+                    "anchor_to": "top_left",
+                    "offset": [10, 10],
+                    "color": "red"
                 }
-            }
-
-        def create_chat_screen():
-            return {
-                "namespace": "chat",
-                "chat_screen_content": {"type": "panel","visible": False},
-                "chat_text_panel": {"type": "panel","visible": False},
-                "chat_background": {"type": "image","visible": False},
-                "send_button": {"type": "button","visible": False}
             }
 
         def build_pack():
@@ -79,8 +68,7 @@ jobs:
             temp_dir.mkdir(exist_ok=True); ui_dir.mkdir(exist_ok=True); dist_dir.mkdir(exist_ok=True)
 
             (temp_dir / "manifest.json").write_text(json.dumps(create_manifest(), indent=2, ensure_ascii=False), "utf-8")
-            (ui_dir / "hud_screen.json").write_text(json.dumps(create_hud_screen(), indent=2), "utf-8")
-            (ui_dir / "chat_screen.json").write_text(json.dumps(create_chat_screen(), indent=2), "utf-8")
+            (ui_dir / "durability_hud.json").write_text(json.dumps(create_durability_hud(), indent=2), "utf-8")
 
             pack_icon_data = bytes.fromhex(
                 "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
@@ -110,8 +98,8 @@ jobs:
     - name: 📤 Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: Chat-Hider-Pack
-        path: dist/Chat-Hider-Pack.mcpack
+        name: Armor-Durability-Pack
+        path: dist/Armor-Durability-Pack.mcpack
         retention-days: 90
     
     - name: ✅ Build Complete
@@ -119,7 +107,7 @@ jobs:
         echo "════════════════════════════════════════"
         echo "  ✨ Build Complete! ✨"
         echo "════════════════════════════════════════"
-        echo "📦 Package: Chat-Hider-Pack"
+        echo "📦 Package: Armor-Durability-Pack"
         echo "👨‍💻 Developer: SIGMAxox"
         echo "🎮 Version: Minecraft Bedrock 1.21.114+"
         echo "════════════════════════════════════════"
