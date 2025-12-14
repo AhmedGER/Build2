@@ -22,8 +22,7 @@ jobs:
       run: |
         cat > build.py << 'ENDPYTHON'
         #!/usr/bin/env python3
-        import json
-        import zipfile
+        import json, zipfile, shutil
         from pathlib import Path
 
         PACK_NAME = "Chat-Hider-Pack"
@@ -55,20 +54,12 @@ jobs:
                 "namespace": "hud",
                 "root_panel": {
                     "modifications": [
-                        {
-                            "array_name": "controls",
-                            "operation": "remove",
-                            "where": { "name": "chat_panel" }
-                        }
+                        {"array_name": "controls","operation": "remove","where": {"name": "chat_panel"}}
                     ]
                 },
                 "hud_content": {
                     "modifications": [
-                        {
-                            "array_name": "controls",
-                            "operation": "remove",
-                            "where": { "name": "chat_panel" }
-                        }
+                        {"array_name": "controls","operation": "remove","where": {"name": "chat_panel"}}
                     ]
                 }
             }
@@ -76,49 +67,31 @@ jobs:
         def create_chat_screen():
             return {
                 "namespace": "chat",
-                "chat_screen_content": { "type": "panel", "visible": False },
-                "chat_text_panel": { "type": "panel", "visible": False },
-                "chat_background": { "type": "image", "visible": False },
-                "send_button": { "type": "button", "visible": False }
+                "chat_screen_content": {"type": "panel","visible": False},
+                "chat_text_panel": {"type": "panel","visible": False},
+                "chat_background": {"type": "image","visible": False},
+                "send_button": {"type": "button","visible": False}
             }
 
         def build_pack():
             print("Building resource pack...")
-            temp_dir = Path("temp_pack")
-            ui_dir = temp_dir / "ui"
-            dist_dir = Path("dist")
-            temp_dir.mkdir(exist_ok=True)
-            ui_dir.mkdir(exist_ok=True)
-            dist_dir.mkdir(exist_ok=True)
+            temp_dir = Path("temp_pack"); ui_dir = temp_dir / "ui"; dist_dir = Path("dist")
+            temp_dir.mkdir(exist_ok=True); ui_dir.mkdir(exist_ok=True); dist_dir.mkdir(exist_ok=True)
 
-            with open(temp_dir / "manifest.json", "w", encoding="utf-8") as f:
-                json.dump(create_manifest(), f, indent=2, ensure_ascii=False)
-            with open(ui_dir / "hud_screen.json", "w", encoding="utf-8") as f:
-                json.dump(create_hud_screen(), f, indent=2)
-            with open(ui_dir / "chat_screen.json", "w", encoding="utf-8") as f:
-                json.dump(create_chat_screen(), f, indent=2)
+            (temp_dir / "manifest.json").write_text(json.dumps(create_manifest(), indent=2, ensure_ascii=False), "utf-8")
+            (ui_dir / "hud_screen.json").write_text(json.dumps(create_hud_screen(), indent=2), "utf-8")
+            (ui_dir / "chat_screen.json").write_text(json.dumps(create_chat_screen(), indent=2), "utf-8")
 
-            pack_icon_data = bytes.fromhex(
-                "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
-                "89000000a4944154789c01990066ff0003010100ff0003010100ff0003010100"
-                "ff0003010100ff0003010100ff0003010100ff0003010100ff0003010100ff00"
-                "03010100ff0003010100ff0003010100ff0003010100ff0003010100ff000301"
-                "0100ff0003010100ff0003010100ff0003010100ff0003010100ff0003010100"
-                "ff0003010100ff0003010100ff0003010100ff0003010100ff0003010100ff00"
-                "03010100ff0003010100ff0003010100ff0003010100ff00fe0d9c24cf000000"
-                "0049454e44ae426082"
-            )
-            with open(temp_dir / "pack_icon.png", "wb") as f:
-                f.write(pack_icon_data)
+            pack_icon_data = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4..."
+                                           "0049454e44ae426082")
+            (temp_dir / "pack_icon.png").write_bytes(pack_icon_data)
 
             zip_path = dist_dir / f"{PACK_NAME}.mcpack"
             with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
                 for file in temp_dir.rglob("*"):
                     if file.is_file():
-                        arcname = file.relative_to(temp_dir)
-                        zipf.write(file, arcname)
+                        zipf.write(file, file.relative_to(temp_dir))
 
-            import shutil
             shutil.rmtree(temp_dir)
             print(f"Build complete: {zip_path}")
             print(f"Size: {zip_path.stat().st_size / 1024:.2f} KB")
@@ -128,56 +101,11 @@ jobs:
         ENDPYTHON
         chmod +x build.py
     
-    - name: 📝 Create README.md
-      run: |
-        cat > README.md << 'EOF'
-# Chat-Hider-Pack
-
-![Minecraft](https://img.shields.io/badge/Minecraft-Bedrock-green?style=for-the-badge&logo=minecraft)
-![Version](https://img.shields.io/badge/Version-1.21.114+-blue?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)
-
-**حزمة موارد لإخفاء رسائل الدردشة في ماين كرافت بيدروك**
-
-## ✨ المميزات
-- 🚫 إخفاء كامل للدردشة من HUD
-- 💬 يخفي جميع رسائل اللاعبين ورسائل النظام
-- 🎮 متوافق مع Minecraft Bedrock 1.21.114+
-- ⚡ بناء تلقائي عبر GitHub Actions
-- 🔧 يستخدم Modifications API الرسمية من Mojang
-
-## 📥 التحميل والتثبيت
-... (باقي النص كما كتبته أنت)
-EOF
-    
-    - name: 📝 Create .gitignore
-      run: |
-        cat > .gitignore << 'ENDGITIGNORE'
-*.py[cod]
-.Python
-env/
-venv/
-dist/
-temp_pack/
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-ENDGITIGNORE
-    
-    - name: 📝 Create LICENSE
-      run: |
-        cat > LICENSE << 'ENDLICENSE'
-Copyright (c) 2024 SIGMAxox
-Permission is hereby granted, free of charge, to any person obtaining a copy...
-ENDLICENSE
-        echo "✅ All project files created"
-    
     - name: 🔨 Build Resource Pack
       run: python build.py
     
     - name: 📤 Upload Artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: Chat-Hider-Pack
         path: dist/Chat-Hider-Pack.mcpack
@@ -191,7 +119,6 @@ ENDLICENSE
         name: "🎮 Chat-Hider-Pack v${{ github.run_number }}"
         body: |
           ## 🚀 Release v${{ github.run_number }}
-          ### ✨ ما الجديد
           - ✅ متوافق مع Minecraft Bedrock 1.21.114+
           - ✅ يخفي جميع رسائل الدردشة من HUD
           - ✅ يستخدم Modifications API الرسمية
@@ -199,14 +126,6 @@ ENDLICENSE
         files: dist/Chat-Hider-Pack.mcpack
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
-    - name: 🎊 Commit Generated Files
-      run: |
-        git config --local user.email "github-actions[bot]@users.noreply.github.com"
-        git config --local user.name "github-actions[bot]"
-        git add -A
-        git diff --quiet && git diff --staged --quiet || git commit -m "🤖 Auto-generated by SIGMAxox"
-        git push || echo "Nothing to push"
     
     - name: ✅ Build Complete
       run: |
