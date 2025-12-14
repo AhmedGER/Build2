@@ -28,8 +28,8 @@ jobs:
 
         PACK_NAME = "Chat-Hider-Pack"
         PACK_DESCRIPTION = "يخفي رسائل الدردشة في ماين كرافت بيدروك"
-        UUID_HEADER = "707d60be-6703-4058-a93f-4aae743dd539"
-        UUID_MODULE = "5bdf2779-3b05-450a-b413-d84df4008cd6"
+        UUID_HEADER = "1642f509-51c7-4aec-93f3-fcd57acee38a"
+        UUID_MODULE = "27d1ca2d-a89e-4be9-aeef-ff188efa5b04"
 
         def create_manifest():
             manifest = {
