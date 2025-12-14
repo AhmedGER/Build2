@@ -18,26 +18,145 @@ jobs:
       with:
         python-version: '3.10'
     
-    - name: 📝 Create Project Structure
+    - name: 📝 Create build.py
       run: |
-        echo "🔨 Creating project files..."
-        
-        # Create build script
-        cat > build.py << 'BUILDSCRIPT'
-#!/usr/bin/env python3
-import json
-import os
-import zipfile
-from pathlib import Path
+        cat > build.py << 'ENDPYTHON'
+        #!/usr/bin/env python3
+        import json
+        import zipfile
+        from pathlib import Path
 
-# Configuration
-PACK_NAME = "Chat-Hider-Pack"
-PACK_DESCRIPTION = "يخفي رسائل الدردشة في ماين كرافت بيدروك"
-UUID_HEADER = "e72d15b4-4961-4356-830c-c02c68d643a3"
-UUID_MODULE = "f7310b70-8200-4888-a21c-854c630aa2ea"
+        PACK_NAME = "Chat-Hider-Pack"
+        PACK_DESCRIPTION = "يخفي رسائل الدردشة في ماين كرافت بيدروك"
+        UUID_HEADER = "707d60be-6703-4058-a93f-4aae743dd539"
+        UUID_MODULE = "5bdf2779-3b05-450a-b413-d84df4008cd6"
+
+        def create_manifest():
+            manifest = {
+                "format_version": 2,
+                "header": {
+                    "name": PACK_NAME,
+                    "description": PACK_DESCRIPTION,
+                    "uuid": UUID_HEADER,
+                    "version": [1, 0, 0],
+                    "min_engine_version": [1, 21, 0]
+                },
+                "modules": [
+                    {
+                        "type": "resources",
+                        "uuid": UUID_MODULE,
+                        "version": [1, 0, 0]
+                    }
+                ]
+            }
+            return manifest
+
+        def create_hud_screen():
+            hud_screen = {
+                "namespace": "hud",
+                "root_panel": {
+                    "modifications": [
+                        {
+                            "array_name": "controls",
+                            "operation": "remove",
+                            "where": {
+                                "name": "chat_panel"
+                            }
+                        }
+                    ]
+                },
+                "hud_content": {
+                    "modifications": [
+                        {
+                            "array_name": "controls",
+                            "operation": "remove",
+                            "where": {
+                                "name": "chat_panel"
+                            }
+                        }
+                    ]
+                }
+            }
+            return hud_screen
+
+        def create_chat_screen():
+            chat_screen = {
+                "namespace": "chat",
+                "chat_screen_content": {
+                    "type": "panel",
+                    "visible": False
+                },
+                "chat_text_panel": {
+                    "type": "panel",
+                    "visible": False
+                },
+                "chat_background": {
+                    "type": "image",
+                    "visible": False
+                },
+                "send_button": {
+                    "type": "button",
+                    "visible": False
+                }
+            }
+            return chat_screen
+
+        def build_pack():
+            print("Building resource pack...")
+            
+            temp_dir = Path("temp_pack")
+            ui_dir = temp_dir / "ui"
+            dist_dir = Path("dist")
+            
+            temp_dir.mkdir(exist_ok=True)
+            ui_dir.mkdir(exist_ok=True)
+            dist_dir.mkdir(exist_ok=True)
+            
+            with open(temp_dir / "manifest.json", "w", encoding="utf-8") as f:
+                json.dump(create_manifest(), f, indent=2, ensure_ascii=False)
+            
+            with open(ui_dir / "hud_screen.json", "w", encoding="utf-8") as f:
+                json.dump(create_hud_screen(), f, indent=2)
+            
+            with open(ui_dir / "chat_screen.json", "w", encoding="utf-8") as f:
+                json.dump(create_chat_screen(), f, indent=2)
+            
+            pack_icon_data = bytes.fromhex(
+                "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
+                "89000000a4944154789c01990066ff0003010100ff0003010100ff0003010100"
+                "ff0003010100ff0003010100ff0003010100ff0003010100ff0003010100ff00"
+                "03010100ff0003010100ff0003010100ff0003010100ff0003010100ff000301"
+                "0100ff0003010100ff0003010100ff0003010100ff0003010100ff0003010100"
+                "ff0003010100ff0003010100ff0003010100ff0003010100ff0003010100ff00"
+                "03010100ff0003010100ff0003010100ff0003010100ff00fe0d9c24cf000000"
+                "0049454e44ae426082"
+            )
+            with open(temp_dir / "pack_icon.png", "wb") as f:
+                f.write(pack_icon_data)
+            
+            zip_path = dist_dir / f"{PACK_NAME}.mcpack"
+            with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
+                for root, dirs, files in temp_dir.rglob("*"):
+                    if root.is_file():
+                        arcname = root.relative_to(temp_dir)
+                        zipf.write(root, arcname)
+            
+            import shutil
+            shutil.rmtree(temp_dir)
+            
+            print(f"Build complete: {zip_path}")
+            print(f"Size: {zip_path.stat().st_size / 1024:.2f} KB")
+
+        if __name__ == "__main__":
+            build_pack()
+        ENDPYTHON
+        chmod +x build.py
+    
+    - name: 📝 Create README.md
+      run: |
+        cat > README.md << 'ENDREADME'
 
 def create_manifest():
-    """إنشاء ملف manifest.json متوافق مع 1.21.114"""
     manifest = {
         "format_version": 2,
         "header": {
@@ -58,7 +177,6 @@ def create_manifest():
     return manifest
 
 def create_hud_screen():
-    """إنشاء ملف hud_screen.json لإخفاء الدردشة"""
     hud_screen = {
         "namespace": "hud",
         "root_panel": {
@@ -87,7 +205,6 @@ def create_hud_screen():
     return hud_screen
 
 def create_chat_screen():
-    """إنشاء ملف chat_screen.json لإخفاء شاشة الدردشة"""
     chat_screen = {
         "namespace": "chat",
         "chat_screen_content": {
@@ -110,10 +227,8 @@ def create_chat_screen():
     return chat_screen
 
 def build_pack():
-    """بناء حزمة الموارد"""
-    print("🔨 بدء بناء حزمة الموارد...")
+    print("Building resource pack...")
     
-    # إنشاء المجلدات
     temp_dir = Path("temp_pack")
     ui_dir = temp_dir / "ui"
     dist_dir = Path("dist")
@@ -122,23 +237,15 @@ def build_pack():
     ui_dir.mkdir(exist_ok=True)
     dist_dir.mkdir(exist_ok=True)
     
-    # إنشاء manifest.json
-    print("📝 إنشاء manifest.json...")
     with open(temp_dir / "manifest.json", "w", encoding="utf-8") as f:
         json.dump(create_manifest(), f, indent=2, ensure_ascii=False)
     
-    # إنشاء hud_screen.json
-    print("📝 إنشاء hud_screen.json...")
     with open(ui_dir / "hud_screen.json", "w", encoding="utf-8") as f:
         json.dump(create_hud_screen(), f, indent=2)
     
-    # إنشاء chat_screen.json
-    print("📝 إنشاء chat_screen.json...")
     with open(ui_dir / "chat_screen.json", "w", encoding="utf-8") as f:
         json.dump(create_chat_screen(), f, indent=2)
     
-    # إنشاء أيقونة بسيطة
-    print("🎨 إنشاء pack_icon.png...")
     pack_icon_data = bytes.fromhex(
         "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4"
         "89000000a4944154789c01990066ff0003010100ff0003010100ff0003010100"
@@ -152,34 +259,27 @@ def build_pack():
     with open(temp_dir / "pack_icon.png", "wb") as f:
         f.write(pack_icon_data)
     
-    # ضغط الملفات
-    print("📦 ضغط الحزمة...")
     zip_path = dist_dir / f"{PACK_NAME}.mcpack"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zipf:
-        for root, dirs, files in os.walk(temp_dir):
-            for file in files:
-                file_path = Path(root) / file
-                arcname = file_path.relative_to(temp_dir)
-                zipf.write(file_path, arcname)
+        for root, dirs, files in temp_dir.rglob("*"):
+            if root.is_file():
+                arcname = root.relative_to(temp_dir)
+                zipf.write(root, arcname)
     
-    # تنظيف
     import shutil
     shutil.rmtree(temp_dir)
     
-    print(f"✅ تم بناء الحزمة: {zip_path}")
-    print(f"📊 حجم الملف: {zip_path.stat().st_size / 1024:.2f} KB")
+    print(f"Build complete: {zip_path}")
+    print(f"Size: {zip_path.stat().st_size / 1024:.2f} KB")
 
 if __name__ == "__main__":
     build_pack()
-BUILDSCRIPT
+EOF
 
         chmod +x build.py
         
-        # Create README
-        cat > README.md << 'README'
+        cat > README.md << 'EOF'
 # Chat-Hider-Pack
-
-<div align="center">
 
 ![Minecraft](https://img.shields.io/badge/Minecraft-Bedrock-green?style=for-the-badge&logo=minecraft)
 ![Version](https://img.shields.io/badge/Version-1.21.114+-blue?style=for-the-badge)
@@ -187,176 +287,109 @@ BUILDSCRIPT
 
 **حزمة موارد لإخفاء رسائل الدردشة في ماين كرافت بيدروك**
 
-[تحميل](../../releases/latest) • [الإبلاغ عن مشكلة](../../issues) • [اقتراح ميزة](../../issues)
-
-</div>
-
----
-
 ## ✨ المميزات
 
-- 🚫 **إخفاء كامل للدردشة** - يخفي صندوق الدردشة تماماً من HUD
-- 💬 **لا رسائل مزعجة** - يخفي جميع رسائل اللاعبين ورسائل النظام
-- 🎮 **متوافق تماماً** - يعمل مع Minecraft Bedrock 1.21.114+
-- ⚡ **بناء تلقائي** - GitHub Actions يبني الحزمة أوتوماتيكياً
-- 🔧 **API رسمية** - يستخدم Modifications API من Mojang
-- 🌐 **سهل التثبيت** - فقط افتح ملف .mcpack
+- 🚫 إخفاء كامل للدردشة من HUD
+- 💬 يخفي جميع رسائل اللاعبين ورسائل النظام
+- 🎮 متوافق مع Minecraft Bedrock 1.21.114+
+- ⚡ بناء تلقائي عبر GitHub Actions
+- 🔧 يستخدم Modifications API الرسمية من Mojang
 
 ## 📥 التحميل والتثبيت
 
-### 1️⃣ التحميل
-حمّل أحدث إصدار من [صفحة Releases](../../releases/latest)
+### التحميل
+حمّل أحدث إصدار من صفحة Releases
 
-### 2️⃣ التثبيت
+### التثبيت
 
-#### 🪟 Windows 10/11
-```
+**Windows 10/11:**
 1. حمّل ملف .mcpack
-2. افتح الملف مباشرة (سيفتح في Minecraft)
+2. افتح الملف مباشرة
 3. أو انسخه إلى: %localappdata%\Packages\Microsoft.MinecraftUWP_8wekyb3d8bbwe\LocalState\games\com.mojang\resource_packs
-```
 
-#### 🤖 Android
-```
+**Android:**
 1. حمّل ملف .mcpack
 2. افتح الملف بواسطة Minecraft
 3. أو انسخه إلى: /sdcard/games/com.mojang/resource_packs
-```
 
-#### 🍎 iOS
-```
+**iOS:**
 1. حمّل ملف .mcpack
 2. افتح الملف بواسطة Minecraft
-3. أو استخدم تطبيق Files لنسخه لمجلد Minecraft
-```
 
-### 3️⃣ التفعيل
-1. افتح **Minecraft Bedrock Edition**
-2. اذهب إلى: **الإعدادات** → **التخزين** → **Resource Packs**
-3. فعّل **"Chat-Hider-Pack"**
-4. استمتع باللعب بدون دردشة مزعجة! 🎉
+### التفعيل
+1. افتح Minecraft Bedrock Edition
+2. اذهب إلى: الإعدادات → التخزين → Resource Packs
+3. فعّل "Chat-Hider-Pack"
 
 ## ⚙️ التفاصيل التقنية
 
-### الطريقة المستخدمة
-تستخدم هذه الحزمة **Modifications API** الرسمية من Mojang لإزالة عناصر الدردشة:
+تستخدم هذه الحزمة Modifications API الرسمية من Mojang لإزالة عناصر الدردشة من:
+- root_panel في hud_screen.json
+- hud_content في hud_screen.json
+- جميع عناصر chat_screen.json
 
-- ❌ حذف `chat_panel` من `root_panel`
-- ❌ حذف `chat_panel` من `hud_content`
-- ❌ إخفاء جميع عناصر `chat_screen.json`
+## ⚠️ تنبيه
 
-### الملفات المعدّلة
-```
-ui/hud_screen.json    → يحذف chat_panel
-ui/chat_screen.json   → يخفي جميع عناصر الدردشة
-manifest.json         → معلومات الحزمة
-```
-
-## ⚠️ تنبيهات مهمة
-
-> **⚡ انتبه:** بعد تفعيل هذه الحزمة لن تتمكن من رؤية **أي** رسائل دردشة!
-
-- ✅ الحزمة **لا تمنع** الدردشة نفسها، فقط تخفي العرض
-- ✅ يمكنك إلغاء تفعيل الحزمة متى شئت لإظهار الدردشة
-- ✅ آمنة تماماً ولا تؤثر على ملفات اللعبة
+بعد تفعيل هذه الحزمة لن تتمكن من رؤية أي رسائل دردشة. يمكنك تعطيل الحزمة متى شئت لإظهار الدردشة مرة أخرى.
 
 ## 🛠️ البناء من المصدر
 
-الحزمة تُبنى **تلقائياً** عند كل push باستخدام GitHub Actions!
+الحزمة تُبنى تلقائياً عند كل push باستخدام GitHub Actions.
 
-### البناء اليدوي (اختياري)
+للبناء يدوياً:
 ```bash
 python build.py
 ```
 
 ## 🔄 التوافق
 
-| الإصدار | الحالة |
-|---------|--------|
-| 1.21.114+ | ✅ مدعوم |
-| 1.21.0+ | ✅ مدعوم |
-| 1.20.x | ⚠️ قد يحتاج تعديل |
-| أقل من 1.20 | ❌ غير مدعوم |
+- ✅ Minecraft Bedrock 1.21.114+
+- ✅ الإصدارات الأحدث من 1.21.0
 
 ## 📝 الترخيص
 
-هذا المشروع مرخص تحت **MIT License** - مفتوح المصدر ومجاني تماماً.
+هذا المشروع مرخص تحت MIT License - مفتوح المصدر ومجاني تماماً.
 
 ## 👨‍💻 المطور
 
-<div align="center">
-
-**صُمم وطُور بواسطة**
-
-### SIGMAxox
-
-[![GitHub](https://img.shields.io/badge/GitHub-SIGMAxox-black?style=for-the-badge&logo=github)](https://github.com/SIGMAxox)
-
-</div>
+**صُمم وطُور بواسطة: SIGMAxox**
 
 ## 🤝 المساهمة
 
-نرحب بالمساهمات! 
-
-- 🐛 **وجدت مشكلة؟** [افتح Issue](../../issues/new)
-- 💡 **عندك اقتراح؟** [افتح Pull Request](../../pulls)
-- 📖 **تحسين للتوثيق؟** نحن نرحب!
+نرحب بالمساهمات!
+- 🐛 وجدت مشكلة؟ افتح Issue
+- 💡 عندك اقتراح؟ افتح Pull Request
 
 ## 🙏 شكر خاص
 
-- [Bedrock Wiki](https://wiki.bedrock.dev) - للتوثيق الممتاز
-- مجتمع Minecraft Bedrock - للدعم المستمر
-- جميع المساهمين في هذا المشروع
-
-## 📞 الدعم
-
-إذا واجهت مشاكل:
-
-1. ✅ تأكد من استخدام إصدار 1.21.114+
-2. ✅ تحقق من تفعيل الحزمة في الإعدادات
-3. ✅ أعد تشغيل اللعبة بعد التفعيل
-4. ❌ المشكلة مستمرة؟ [افتح Issue](../../issues/new)
+- Bedrock Wiki للتوثيق الممتاز
+- مجتمع Minecraft Bedrock للدعم المستمر
 
 ---
 
-<div align="center">
-
 **صُنع بـ ❤️ من أجل مجتمع Minecraft Bedrock**
-
-⭐ إذا أعجبتك الحزمة، لا تنسى تضع نجمة للمشروع!
-
-</div>
-README
-
-        # Create .gitignore
-        cat > .gitignore << 'GITIGNORE'
-# Python
-__pycache__/
+ENDREADME
+    
+    - name: 📝 Create .gitignore
+      run: |
+        cat > .gitignore << 'ENDGITIGNORE'
 *.py[cod]
-*$py.class
-*.so
 .Python
 env/
 venv/
-ENV/
 dist/
 temp_pack/
-
-# OS
 .DS_Store
 Thumbs.db
-
-# IDE
 .vscode/
 .idea/
-*.sublime-*
-GITIGNORE
+ENDGITIGNORE
+    
+    - name: 📝 Create LICENSE
+      run: |
+        cat > LICENSE << 'ENDLICENSE'
 
-        # Create LICENSE
-        cat > LICENSE << 'LICENSE'
-MIT License
-
-Copyright (c) $(date +%Y) SIGMAxox
+Copyright (c) 2024 SIGMAxox
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -375,9 +408,8 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-LICENSE
-
-        echo "✅ All project files created!"
+ENDLICENSE
+        echo "✅ All project files created"
     
     - name: 🔨 Build Resource Pack
       run: python build.py
@@ -405,16 +437,12 @@ LICENSE
           - ✅ سهل التثبيت والاستخدام
           
           ### 📥 كيفية التثبيت
-          1. حمّل ملف `.mcpack` من الأسفل
+          1. حمّل ملف .mcpack من الأسفل
           2. افتح الملف بواسطة Minecraft
-          3. فعّل الحزمة من الإعدادات → Resource Packs
+          3. فعّل الحزمة من الإعدادات
           
           ### 👨‍💻 المطور
           **SIGMAxox** - صُمم وطُور بـ ❤️
-          
-          ---
-          
-          🐛 وجدت مشكلة؟ [أبلغ عنها هنا](https://github.com/${{ github.repository }}/issues)
         files: dist/Chat-Hider-Pack.mcpack
         draft: false
         prerelease: false
@@ -426,20 +454,15 @@ LICENSE
         git config --local user.email "github-actions[bot]@users.noreply.github.com"
         git config --local user.name "github-actions[bot]"
         git add -A
-        git diff --quiet && git diff --staged --quiet || git commit -m "🤖 Auto-generated project files by SIGMAxox"
+        git diff --quiet && git diff --staged --quiet || git commit -m "🤖 Auto-generated by SIGMAxox"
         git push || echo "Nothing to push"
     
     - name: ✅ Build Complete
       run: |
-        echo "════════════════════════════════════════════════════"
+        echo "════════════════════════════════════════"
         echo "  ✨ Build Complete! ✨"
-        echo "════════════════════════════════════════════════════"
-        echo ""
+        echo "════════════════════════════════════════"
         echo "📦 Package: Chat-Hider-Pack"
         echo "👨‍💻 Developer: SIGMAxox"
         echo "🎮 Version: Minecraft Bedrock 1.21.114+"
-        echo ""
-        echo "🎉 The resource pack has been built successfully!"
-        echo "📥 Download it from the Releases page"
-        echo ""
-        echo "════════════════════════════════════════════════════"
+        echo "════════════════════════════════════════"
