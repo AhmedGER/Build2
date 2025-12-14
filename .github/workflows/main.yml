@@ -114,22 +114,6 @@ jobs:
         path: dist/Chat-Hider-Pack.mcpack
         retention-days: 90
     
-    - name: 🎉 Create Release
-      if: github.ref == 'refs/heads/main'
-      uses: softprops/action-gh-release@v1
-      with:
-        tag_name: v${{ github.run_number }}
-        name: "🎮 Chat-Hider-Pack v${{ github.run_number }}"
-        body: |
-          ## 🚀 Release v${{ github.run_number }}
-          - ✅ متوافق مع Minecraft Bedrock 1.21.114+
-          - ✅ يخفي جميع رسائل الدردشة من HUD
-          - ✅ يستخدم Modifications API الرسمية
-          - ✅ سهل التثبيت والاستخدام
-        files: dist/Chat-Hider-Pack.mcpack
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
     - name: ✅ Build Complete
       run: |
         echo "════════════════════════════════════════"
