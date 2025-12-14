@@ -82,8 +82,11 @@ jobs:
             (ui_dir / "hud_screen.json").write_text(json.dumps(create_hud_screen(), indent=2), "utf-8")
             (ui_dir / "chat_screen.json").write_text(json.dumps(create_chat_screen(), indent=2), "utf-8")
 
-            pack_icon_data = bytes.fromhex("89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4..."
-                                           "0049454e44ae426082")
+            pack_icon_data = bytes.fromhex(
+                "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c489"
+                "0000000a49444154789c6360000002000100ffff03000006000557bf2a00000000"
+                "49454e44ae426082"
+            )
             (temp_dir / "pack_icon.png").write_bytes(pack_icon_data)
 
             zip_path = dist_dir / f"{PACK_NAME}.mcpack"
