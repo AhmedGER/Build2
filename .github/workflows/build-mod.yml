@@ -1,4 +1,4 @@
-name: Build Smart Bridging Mod (Left ALT + Right Click) - Fixed for 1.16.5
+name: Build Auto Block Placer Mod (Left ALT Toggle) - 1.16.5
 
 on:
   workflow_dispatch:
@@ -27,24 +27,23 @@ jobs:
     
     - name: Create directories
       run: |
-        mkdir -p src/main/java/com/smartbridge/mixin
+        mkdir -p src/main/java/com/autoplacer/mixin
         mkdir -p src/main/resources
     
-    - name: Write SmartBridgeMod.java
+    - name: Write AutoBlockPlacerMod.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/smartbridge/SmartBridgeMod.java
-        package com.smartbridge;
+        cat << 'EOF' > src/main/java/com/autoplacer/AutoBlockPlacerMod.java
+        package com.autoplacer;
         
         import net.fabricmc.api.ClientModInitializer;
         
-        public class SmartBridgeMod implements ClientModInitializer {
-            public static final String MOD_ID = "smartbridge";
+        public class AutoBlockPlacerMod implements ClientModInitializer {
+            public static final String MOD_ID = "autoplacer";
             public static boolean isEnabled = false;
             
             @Override
             public void onInitializeClient() {
-                System.out.println("[Smart Bridge] Mod loaded! Press LEFT ALT to toggle!");
             }
         }
         EOF
@@ -52,13 +51,15 @@ jobs:
     - name: Write MinecraftClientMixin.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/smartbridge/mixin/MinecraftClientMixin.java
-        package com.smartbridge.mixin;
+        cat << 'EOF' > src/main/java/com/autoplacer/mixin/MinecraftClientMixin.java
+        package com.autoplacer.mixin;
         
-        import com.smartbridge.SmartBridgeMod;
+        import com.autoplacer.AutoBlockPlacerMod;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.network.ClientPlayerEntity;
-        import net.minecraft.text.LiteralText;
+        import net.minecraft.util.ActionResult;
+        import net.minecraft.util.Hand;
+        import net.minecraft.util.hit.BlockHitResult;
         import org.lwjgl.glfw.GLFW;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.Shadow;
@@ -72,113 +73,69 @@ jobs:
             public ClientPlayerEntity player;
             
             private boolean wasAltPressed = false;
+            private int placementCooldown = 0;
             
-            /**
-             * المود الذكي للـ Bridging - متوافق مع 1.16.5!
-             * 
-             * طريقة الاستخدام:
-             * 1. اضغط Left ALT لتفعيل/إيقاف المود
-             * 2. اضغط Right Click وانت شايل بلوكات
-             * 3. المود يلفك للزاوية الصحيحة تلقائياً
-             * 4. حط البلوك بنفسك!
-             */
             @Inject(method = "tick", at = @At("HEAD"))
             private void onClientTick(CallbackInfo ci) {
                 if (this.player == null) return;
                 
                 MinecraftClient client = (MinecraftClient)(Object)this;
                 
-                // فحص زر Left ALT
+                // فحص زر Left ALT للتشغيل/الإيقاف
                 boolean isAltPressed = GLFW.glfwGetKey(
                     client.getWindow().getHandle(), 
                     GLFW.GLFW_KEY_LEFT_ALT
                 ) == GLFW.GLFW_PRESS;
                 
-                // Toggle المود عند الضغط (مش عند المسك)
                 if (isAltPressed && !wasAltPressed) {
-                    SmartBridgeMod.isEnabled = !SmartBridgeMod.isEnabled;
-                    String status = SmartBridgeMod.isEnabled ? "§a§lON" : "§c§lOFF";
-                    this.player.sendMessage(
-                        new LiteralText("§6§l[Smart Bridge] " + status), 
-                        true
-                    );
+                    AutoBlockPlacerMod.isEnabled = !AutoBlockPlacerMod.isEnabled;
                 }
                 
                 wasAltPressed = isAltPressed;
+                
+                // تقليل الـ cooldown
+                if (placementCooldown > 0) {
+                    placementCooldown--;
+                }
+                
+                // إذا المود شغال والـ Right Click مضغوط
+                if (AutoBlockPlacerMod.isEnabled) {
+                    boolean isRightClickPressed = GLFW.glfwGetMouseButton(
+                        client.getWindow().getHandle(),
+                        GLFW.GLFW_MOUSE_BUTTON_RIGHT
+                    ) == GLFW.GLFW_PRESS;
+                    
+                    if (isRightClickPressed && placementCooldown <= 0) {
+                        tryPlaceBlock(client);
+                        // Cooldown عادي (4 ticks = سرعة عادية)
+                        placementCooldown = 4;
+                    }
+                }
             }
             
-            @Inject(method = "doItemUse", at = @At("HEAD"))
-            private void onRightClick(CallbackInfo ci) {
-                if (!SmartBridgeMod.isEnabled) return;
+            private void tryPlaceBlock(MinecraftClient client) {
                 if (this.player == null) return;
+                if (client.interactionManager == null) return;
                 
                 // تأكد إن اللاعب شايل حاجة في إيده
                 if (this.player.getMainHandStack().isEmpty()) return;
                 
-                // حساب الزاوية المثالية للـ bridging
-                float currentYaw = this.player.getYaw();
-                float targetYaw = getClosestCardinalDirection(currentYaw);
-                float targetPitch = 75.0f; // الزاوية المثالية للـ bridging
-                
-                // تطبيق الدوران
-                smoothRotate(targetYaw, targetPitch);
-            }
-            
-            /**
-             * حساب أقرب اتجاه أساسي (0°, 90°, 180°, 270°)
-             */
-            private float getClosestCardinalDirection(float yaw) {
-                yaw = yaw % 360.0f;
-                if (yaw < 0) yaw += 360.0f;
-                
-                float[] directions = {0.0f, 90.0f, 180.0f, 270.0f};
-                float closest = directions[0];
-                float minDiff = Math.abs(angleDifference(yaw, directions[0]));
-                
-                for (float dir : directions) {
-                    float diff = Math.abs(angleDifference(yaw, dir));
-                    if (diff < minDiff) {
-                        minDiff = diff;
-                        closest = dir;
+                // محاولة وضع البلوك
+                if (client.crosshairTarget instanceof BlockHitResult) {
+                    BlockHitResult hitResult = (BlockHitResult) client.crosshairTarget;
+                    
+                    ActionResult result = client.interactionManager.interactBlock(
+                        this.player,
+                        client.world,
+                        Hand.MAIN_HAND,
+                        hitResult
+                    );
+                    
+                    // تحريك الإيد (animation)
+                    if (result.isAccepted()) {
+                        this.player.swingHand(Hand.MAIN_HAND);
                     }
                 }
-                
-                return closest;
-            }
-            
-            /**
-             * حساب الفرق بين زاويتين
-             */
-            private float angleDifference(float a, float b) {
-                float diff = (a - b) % 360.0f;
-                if (diff > 180.0f) diff -= 360.0f;
-                if (diff < -180.0f) diff += 360.0f;
-                return diff;
-            }
-            
-            /**
-             * تدوير اللاعب بسلاسة
-             */
-            private void smoothRotate(float targetYaw, float targetPitch) {
-                if (this.player == null) return;
-                
-                float currentYaw = this.player.getYaw();
-                float currentPitch = this.player.getPitch();
-                
-                // سرعة الدوران (أكبر = أسرع)
-                float rotationSpeed = 0.35f;
-                
-                float yawDiff = angleDifference(targetYaw, currentYaw);
-                float pitchDiff = targetPitch - currentPitch;
-                
-                float newYaw = currentYaw + (yawDiff * rotationSpeed);
-                float newPitch = currentPitch + (pitchDiff * rotationSpeed);
-                
-                // تحديد pitch في النطاق الصحيح
-                newPitch = Math.max(-90.0f, Math.min(90.0f, newPitch));
-                
-                this.player.setYaw(newYaw);
-                this.player.setPitch(newPitch);
             }
         }
         EOF
@@ -189,17 +146,17 @@ jobs:
         cat << 'EOF' > src/main/resources/fabric.mod.json
         {
           "schemaVersion": 1,
-          "id": "smartbridge",
-          "version": "1.0.1",
-          "name": "Smart Bridging Assistant",
-          "description": "Press LEFT ALT to toggle, then Right Click to auto-rotate for perfect bridging!",
-          "authors": ["SIGMAxox"],
+          "id": "autoplacer",
+          "version": "1.0.0",
+          "name": "Auto Block Placer",
+          "description": "Hold Right Click to place blocks automatically. Toggle with Left ALT.",
+          "authors": ["YourName"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
-            "client": ["com.smartbridge.SmartBridgeMod"]
+            "client": ["com.autoplacer.AutoBlockPlacerMod"]
           },
-          "mixins": ["smartbridge.mixins.json"],
+          "mixins": ["autoplacer.mixins.json"],
           "depends": {
             "fabricloader": ">=0.11.0",
             "minecraft": "1.16.5"
@@ -207,14 +164,14 @@ jobs:
         }
         EOF
     
-    - name: Write smartbridge.mixins.json
+    - name: Write autoplacer.mixins.json
       shell: bash
       run: |
-        cat << 'EOF' > src/main/resources/smartbridge.mixins.json
+        cat << 'EOF' > src/main/resources/autoplacer.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
-          "package": "com.smartbridge.mixin",
+          "package": "com.autoplacer.mixin",
           "compatibilityLevel": "JAVA_8",
           "client": ["MinecraftClientMixin"],
           "injectors": {"defaultRequire": 1}
@@ -233,9 +190,9 @@ jobs:
         sourceCompatibility = JavaVersion.VERSION_1_8
         targetCompatibility = JavaVersion.VERSION_1_8
         
-        archivesBaseName = "smart-bridging-assistant"
-        version = "1.0.1"
-        group = "com.smartbridge"
+        archivesBaseName = "auto-block-placer"
+        version = "1.0.0"
+        group = "com.autoplacer"
         
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -285,7 +242,7 @@ jobs:
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'smart-bridging-assistant'
+        rootProject.name = 'auto-block-placer'
         EOF
     
     - name: Create Gradle Wrapper
@@ -313,5 +270,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: smart-bridging-assistant-v1.0.1-FIXED
+        name: auto-block-placer-v1.0.0
         path: build/libs/*.jar
