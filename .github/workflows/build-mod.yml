@@ -134,7 +134,7 @@ jobs:
                 }
                 
                 // حساب الاتجاه اللي بيبص فيه اللاعب
-                float yaw = this.player.getYaw();
+                float yaw = this.player.yaw;
                 Direction direction = getHorizontalDirection(yaw);
                 
                 // البلوك الجديد هيتحط جنب البلوك اللي تحت اللاعب
