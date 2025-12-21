@@ -79,82 +79,97 @@ jobs:
             
             private boolean wasAltPressed = false;
             
-            @Inject(method = "render", at = @At("TAIL"))
+            @Inject(method = "render", at = @At("RETURN"))
             private void onRender(MatrixStack matrices, float tickDelta, CallbackInfo ci) {
-                if (this.client == null || this.client.player == null) return;
-                
-                // فحص زر ALT-Left للتشغيل/الإيقاف
-                boolean isAltPressed = GLFW.glfwGetKey(
-                    this.client.getWindow().getHandle(), 
-                    GLFW.GLFW_KEY_LEFT_ALT
-                ) == GLFW.GLFW_PRESS;
-                
-                if (isAltPressed && !wasAltPressed) {
-                    NearbyPlayersMod.isListVisible = !NearbyPlayersMod.isListVisible;
-                }
-                
-                wasAltPressed = isAltPressed;
-                
-                // عرض القائمة لو مفعّلة
-                if (NearbyPlayersMod.isListVisible) {
-                    renderNearbyPlayersList(matrices);
+                try {
+                    if (this.client == null) return;
+                    if (this.client.player == null) return;
+                    if (this.client.world == null) return;
+                    if (this.client.getWindow() == null) return;
+                    
+                    // فحص زر ALT-Left للتشغيل/الإيقاف
+                    boolean isAltPressed = GLFW.glfwGetKey(
+                        this.client.getWindow().getHandle(), 
+                        GLFW.GLFW_KEY_LEFT_ALT
+                    ) == GLFW.GLFW_PRESS;
+                    
+                    if (isAltPressed && !wasAltPressed) {
+                        NearbyPlayersMod.isListVisible = !NearbyPlayersMod.isListVisible;
+                    }
+                    
+                    wasAltPressed = isAltPressed;
+                    
+                    // عرض القائمة لو مفعّلة
+                    if (NearbyPlayersMod.isListVisible) {
+                        renderNearbyPlayersList(matrices);
+                    }
+                } catch (Exception e) {
+                    // تجاهل أي أخطاء عشان اللعبة متكرش
                 }
             }
             
             private void renderNearbyPlayersList(MatrixStack matrices) {
-                if (this.client.world == null || this.client.player == null) return;
-                
-                ClientPlayerEntity player = this.client.player;
-                List<PlayerInfo> nearbyPlayers = new ArrayList<>();
-                
-                // جمع معلومات اللاعبين القريبين
-                for (PlayerEntity p : this.client.world.getPlayers()) {
-                    if (p == player) continue; // تجاهل نفسك
+                try {
+                    if (this.client == null) return;
+                    if (this.client.world == null) return;
+                    if (this.client.player == null) return;
+                    if (this.client.textRenderer == null) return;
                     
-                    double distance = player.getPos().distanceTo(p.getPos());
-                    nearbyPlayers.add(new PlayerInfo(p.getName().getString(), distance));
-                }
-                
-                // ترتيب حسب المسافة (الأقرب أولاً)
-                nearbyPlayers.sort(Comparator.comparingDouble(info -> info.distance));
-                
-                // رسم الخلفية والقائمة
-                int x = 10;
-                int y = 10;
-                int lineHeight = 12;
-                int padding = 4;
-                int maxWidth = 200;
-                
-                // عنوان القائمة
-                String title = "§e§lNearby Players";
-                this.client.textRenderer.drawWithShadow(matrices, title, x, y, 0xFFFFFF);
-                y += lineHeight + 2;
-                
-                // خط فاصل
-                String separator = "§7-------------------------";
-                this.client.textRenderer.drawWithShadow(matrices, separator, x, y, 0x777777);
-                y += lineHeight;
-                
-                // عرض اللاعبين
-                if (nearbyPlayers.isEmpty()) {
-                    String noPlayers = "§7No players nearby";
-                    this.client.textRenderer.drawWithShadow(matrices, noPlayers, x, y, 0x777777);
-                } else {
-                    for (PlayerInfo info : nearbyPlayers) {
-                        String playerText = String.format("§a%s §7- §c%.0f blocks", 
-                            info.name, info.distance);
-                        this.client.textRenderer.drawWithShadow(matrices, playerText, x, y, 0xFFFFFF);
-                        y += lineHeight;
+                    ClientPlayerEntity player = this.client.player;
+                    List<PlayerInfo> nearbyPlayers = new ArrayList<PlayerInfo>();
+                    
+                    // جمع معلومات اللاعبين القريبين
+                    for (PlayerEntity p : this.client.world.getPlayers()) {
+                        if (p == null) continue;
+                        if (p == player) continue;
+                        if (p.getName() == null) continue;
                         
-                        // حد أقصى 10 لاعبين
-                        if (y > 150) break;
+                        double distance = player.getPos().distanceTo(p.getPos());
+                        nearbyPlayers.add(new PlayerInfo(p.getName().getString(), distance));
                     }
+                    
+                    // ترتيب حسب المسافة
+                    nearbyPlayers.sort(new Comparator<PlayerInfo>() {
+                        public int compare(PlayerInfo a, PlayerInfo b) {
+                            return Double.compare(a.distance, b.distance);
+                        }
+                    });
+                    
+                    // رسم القائمة
+                    int x = 10;
+                    int y = 10;
+                    int lineHeight = 12;
+                    
+                    // عنوان القائمة
+                    this.client.textRenderer.drawWithShadow(matrices, "§e§lNearby Players", x, y, 0xFFFFFF);
+                    y += lineHeight + 2;
+                    
+                    // خط فاصل
+                    this.client.textRenderer.drawWithShadow(matrices, "§7-------------------------", x, y, 0x777777);
+                    y += lineHeight;
+                    
+                    // عرض اللاعبين
+                    if (nearbyPlayers.isEmpty()) {
+                        this.client.textRenderer.drawWithShadow(matrices, "§7No players nearby", x, y, 0x777777);
+                    } else {
+                        int count = 0;
+                        for (PlayerInfo info : nearbyPlayers) {
+                            if (count >= 10) break;
+                            String playerText = String.format("§a%s §7- §c%.0f blocks", info.name, info.distance);
+                            this.client.textRenderer.drawWithShadow(matrices, playerText, x, y, 0xFFFFFF);
+                            y += lineHeight;
+                            count++;
+                        }
+                    }
+                    
+                    // عدد اللاعبين الإجمالي
+                    y += 4;
+                    String total = String.format("§7Total: §e%d player(s)", nearbyPlayers.size());
+                    this.client.textRenderer.drawWithShadow(matrices, total, x, y, 0x777777);
+                    
+                } catch (Exception e) {
+                    // تجاهل الأخطاء
                 }
-                
-                // عدد اللاعبين الإجمالي
-                y += 4;
-                String total = String.format("§7Total: §e%d player(s)", nearbyPlayers.size());
-                this.client.textRenderer.drawWithShadow(matrices, total, x, y, 0x777777);
             }
             
             private static class PlayerInfo {
