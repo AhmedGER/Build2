@@ -124,38 +124,40 @@ jobs:
                 // تأكد إن اللاعب شايل حاجة في إيده
                 if (this.player.getMainHandStack().isEmpty()) return;
                 
-                // حساب البلوك اللي تحت رجل اللاعب
-                BlockPos playerPos = this.player.getBlockPos();
-                BlockPos blockBelow = playerPos.down();
-                
-                // تأكد إن فيه بلوك تحت اللاعب
-                if (client.world.getBlockState(blockBelow).isAir()) {
-                    return; // لو مفيش بلوك تحتك، متحطش حاجة
+                // حساب اتجاه الحركة
+                Direction moveDirection = getMovementDirection();
+                if (moveDirection == null) {
+                    return; // لو مش بيتحرك، متحطش حاجة
                 }
                 
-                // حساب الاتجاه اللي بيبص فيه اللاعب
-                float yaw = this.player.yaw;
-                Direction direction = getHorizontalDirection(yaw);
+                // البحث عن بلوك للبناء عليه
+                BlockPos playerPos = this.player.getBlockPos();
+                BlockPos targetBlock = findBlockToPlaceOn(client, playerPos, moveDirection);
                 
-                // البلوك الجديد هيتحط جنب البلوك اللي تحت اللاعب
-                BlockPos targetPos = blockBelow.offset(direction);
+                if (targetBlock == null) {
+                    return; // مفيش بلوك نبني عليه
+                }
+                
+                // تحديد الجانب اللي هنحط عليه والمكان الجديد
+                Direction placeDirection = Direction.UP; // نحط على الوش العلوي
+                BlockPos newBlockPos = targetBlock.up();
                 
                 // تأكد إن المكان فاضي
-                if (!client.world.getBlockState(targetPos).isAir()) {
+                if (!client.world.getBlockState(newBlockPos).isAir()) {
                     return;
                 }
                 
-                // إنشاء BlockHitResult للجانب الصحيح من البلوك اللي تحتك
+                // إنشاء BlockHitResult
                 Vec3d hitVec = new Vec3d(
-                    blockBelow.getX() + 0.5,
-                    blockBelow.getY() + 0.5,
-                    blockBelow.getZ() + 0.5
+                    targetBlock.getX() + 0.5,
+                    targetBlock.getY() + 1.0, // على السطح العلوي
+                    targetBlock.getZ() + 0.5
                 );
                 
                 BlockHitResult hitResult = new BlockHitResult(
                     hitVec,
-                    direction,
-                    blockBelow,
+                    placeDirection,
+                    targetBlock,
                     false
                 );
                 
@@ -174,21 +176,90 @@ jobs:
             }
             
             /**
-             * تحويل الـ yaw لأحد الاتجاهات الأربعة الأفقية
+             * البحث عن بلوك للبناء عليه
              */
-            private Direction getHorizontalDirection(float yaw) {
+            private BlockPos findBlockToPlaceOn(MinecraftClient client, BlockPos playerPos, Direction direction) {
+                // البحث في اتجاه الحركة
+                BlockPos checkPos = playerPos.offset(direction);
+                
+                // أولاً: شوف لو فيه بلوك في نفس المستوى
+                BlockPos sameLevel = checkPos.down();
+                if (!client.world.getBlockState(sameLevel).isAir()) {
+                    return sameLevel;
+                }
+                
+                // ثانياً: شوف لو فيه بلوك تحت بمستوى واحد
+                BlockPos oneDown = checkPos.down(2);
+                if (!client.world.getBlockState(oneDown).isAir()) {
+                    return oneDown;
+                }
+                
+                // ثالثاً: شوف لو فيه بلوك تحت بمستويين
+                BlockPos twoDown = checkPos.down(3);
+                if (!client.world.getBlockState(twoDown).isAir()) {
+                    return twoDown;
+                }
+                
+                return null; // مفيش بلوك قريب
+            }
+            
+            /**
+             * حساب اتجاه الحركة بناءً على المفاتيح المضغوطة
+             */
+            private Direction getMovementDirection() {
+                if (this.player == null) return null;
+                
+                MinecraftClient client = (MinecraftClient)(Object)this;
+                long window = client.getWindow().getHandle();
+                
+                // فحص المفاتيح
+                boolean forward = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_W) == GLFW.GLFW_PRESS;
+                boolean backward = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_S) == GLFW.GLFW_PRESS;
+                boolean left = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_A) == GLFW.GLFW_PRESS;
+                boolean right = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_D) == GLFW.GLFW_PRESS;
+                
+                // لو مش بيتحرك
+                if (!forward && !backward && !left && !right) {
+                    return null;
+                }
+                
+                // حساب اتجاه النظر
+                float yaw = this.player.yaw;
+                
+                // حساب اتجاه الحركة النهائي
+                float moveYaw = yaw;
+                
+                if (forward) {
+                    if (left) moveYaw += 45; // أمام-شمال
+                    else if (right) moveYaw -= 45; // أمام-يمين
+                } else if (backward) {
+                    if (left) moveYaw += 135; // خلف-شمال
+                    else if (right) moveYaw -= 135; // خلف-يمين
+                    else moveYaw += 180; // خلف فقط
+                } else if (left) {
+                    moveYaw += 90; // شمال فقط
+                } else if (right) {
+                    moveYaw -= 90; // يمين فقط
+                }
+                
+                return getDirectionFromYaw(moveYaw);
+            }
+            
+            /**
+             * تحويل الـ yaw لأحد الاتجاهات الأربعة
+             */
+            private Direction getDirectionFromYaw(float yaw) {
                 yaw = yaw % 360.0f;
                 if (yaw < 0) yaw += 360.0f;
                 
-                // تحديد الاتجاه بناءً على الزاوية
                 if (yaw >= 315.0f || yaw < 45.0f) {
-                    return Direction.SOUTH; // 0°
+                    return Direction.SOUTH;
                 } else if (yaw >= 45.0f && yaw < 135.0f) {
-                    return Direction.WEST; // 90°
+                    return Direction.WEST;
                 } else if (yaw >= 135.0f && yaw < 225.0f) {
-                    return Direction.NORTH; // 180°
+                    return Direction.NORTH;
                 } else {
-                    return Direction.EAST; // 270°
+                    return Direction.EAST;
                 }
             }
         }
