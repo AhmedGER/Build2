@@ -28,6 +28,7 @@ jobs:
     - name: Create directories
       run: |
         mkdir -p src/main/java/com/nearbyplayers/mixin
+        mkdir -p src/main/java/com/nearbyplayers/util
         mkdir -p src/main/resources
     
     - name: Write NearbyPlayersMod.java
@@ -48,6 +49,23 @@ jobs:
         }
         EOF
     
+    - name: Write PlayerInfo.java
+      shell: bash
+      run: |
+        cat << 'EOF' > src/main/java/com/nearbyplayers/util/PlayerInfo.java
+        package com.nearbyplayers.util;
+        
+        public class PlayerInfo {
+            public String name;
+            public double distance;
+            
+            public PlayerInfo(String name, double distance) {
+                this.name = name;
+                this.distance = distance;
+            }
+        }
+        EOF
+    
     - name: Write InGameHudMixin.java
       shell: bash
       run: |
@@ -55,6 +73,7 @@ jobs:
         package com.nearbyplayers.mixin;
         
         import com.nearbyplayers.NearbyPlayersMod;
+        import com.nearbyplayers.util.PlayerInfo;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.gui.hud.InGameHud;
         import net.minecraft.client.network.ClientPlayerEntity;
@@ -169,16 +188,6 @@ jobs:
                     
                 } catch (Exception e) {
                     // تجاهل الأخطاء
-                }
-            }
-            
-            private static class PlayerInfo {
-                String name;
-                double distance;
-                
-                PlayerInfo(String name, double distance) {
-                    this.name = name;
-                    this.distance = distance;
                 }
             }
         }
