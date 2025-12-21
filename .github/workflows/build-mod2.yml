@@ -72,13 +72,10 @@ jobs:
         import java.util.List;
         
         @Mixin(InGameHud.class)
-        public abstract class InGameHudMixin {
+        public class InGameHudMixin {
             
             @Shadow
             private MinecraftClient client;
-            
-            @Shadow
-            public abstract void drawTextWithShadow(MatrixStack matrices, net.minecraft.client.font.TextRenderer textRenderer, String text, int x, int y, int color);
             
             private boolean wasAltPressed = false;
             
@@ -130,23 +127,23 @@ jobs:
                 
                 // عنوان القائمة
                 String title = "§e§lNearby Players";
-                this.drawTextWithShadow(matrices, this.client.textRenderer, title, x, y, 0xFFFFFF);
+                this.client.textRenderer.drawWithShadow(matrices, title, x, y, 0xFFFFFF);
                 y += lineHeight + 2;
                 
                 // خط فاصل
-                String separator = "§7" + "─".repeat(25);
-                this.drawTextWithShadow(matrices, this.client.textRenderer, separator, x, y, 0x777777);
+                String separator = "§7-------------------------";
+                this.client.textRenderer.drawWithShadow(matrices, separator, x, y, 0x777777);
                 y += lineHeight;
                 
                 // عرض اللاعبين
                 if (nearbyPlayers.isEmpty()) {
                     String noPlayers = "§7No players nearby";
-                    this.drawTextWithShadow(matrices, this.client.textRenderer, noPlayers, x, y, 0x777777);
+                    this.client.textRenderer.drawWithShadow(matrices, noPlayers, x, y, 0x777777);
                 } else {
                     for (PlayerInfo info : nearbyPlayers) {
                         String playerText = String.format("§a%s §7- §c%.0f blocks", 
                             info.name, info.distance);
-                        this.drawTextWithShadow(matrices, this.client.textRenderer, playerText, x, y, 0xFFFFFF);
+                        this.client.textRenderer.drawWithShadow(matrices, playerText, x, y, 0xFFFFFF);
                         y += lineHeight;
                         
                         // حد أقصى 10 لاعبين
@@ -157,7 +154,7 @@ jobs:
                 // عدد اللاعبين الإجمالي
                 y += 4;
                 String total = String.format("§7Total: §e%d player(s)", nearbyPlayers.size());
-                this.drawTextWithShadow(matrices, this.client.textRenderer, total, x, y, 0x777777);
+                this.client.textRenderer.drawWithShadow(matrices, total, x, y, 0x777777);
             }
             
             private static class PlayerInfo {
