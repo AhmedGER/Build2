@@ -1,4 +1,4 @@
-name: Build CPS Booster Mod (1.20.1 - Left ALT Toggle)
+name: Build Ultra Fast Mod (1.20.1 - Fast Place + CPS Booster)
 
 on:
   workflow_dispatch:
@@ -27,25 +27,26 @@ jobs:
     
     - name: Create directories
       run: |
-        mkdir -p src/main/java/com/cpsbooster/mixin
+        mkdir -p src/main/java/com/ultrafast/mixin
         mkdir -p src/main/resources
     
-    - name: Write CPSBoosterMod.java
+    - name: Write UltraFastMod.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/cpsbooster/CPSBoosterMod.java
-        package com.cpsbooster;
+        cat << 'EOF' > src/main/java/com/ultrafast/UltraFastMod.java
+        package com.ultrafast;
         
         import net.fabricmc.api.ClientModInitializer;
         
-        public class CPSBoosterMod implements ClientModInitializer {
-            public static final String MOD_ID = "cpsbooster";
+        public class UltraFastMod implements ClientModInitializer {
+            public static final String MOD_ID = "ultrafast";
             public static boolean isEnabled = false;
             
             @Override
             public void onInitializeClient() {
-                System.out.println("[CPS Booster] Mod loaded! Press LEFT ALT to toggle!");
-                System.out.println("[CPS Booster] Target: 10-12 CPS with natural randomness!");
+                System.out.println("[Ultra Fast] Mod loaded!");
+                System.out.println("[Ultra Fast] Press LEFT ALT to toggle!");
+                System.out.println("[Ultra Fast] Features: Zero delay block placement + CPS boost!");
             }
         }
         EOF
@@ -53,14 +54,13 @@ jobs:
     - name: Write MinecraftClientMixin.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/cpsbooster/mixin/MinecraftClientMixin.java
-        package com.cpsbooster.mixin;
+        cat << 'EOF' > src/main/java/com/ultrafast/mixin/MinecraftClientMixin.java
+        package com.ultrafast.mixin;
         
-        import com.cpsbooster.CPSBoosterMod;
+        import com.ultrafast.UltraFastMod;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.network.ClientPlayerEntity;
         import net.minecraft.text.Text;
-        import net.minecraft.util.Hand;
         import org.lwjgl.glfw.GLFW;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.Shadow;
@@ -68,32 +68,28 @@ jobs:
         import org.spongepowered.asm.mixin.injection.Inject;
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
         
-        import java.util.Random;
-        
         @Mixin(MinecraftClient.class)
         public class MinecraftClientMixin {
             @Shadow
             public ClientPlayerEntity player;
             
+            @Shadow
+            private int itemUseCooldown;
+            
             private boolean wasAltPressed = false;
-            private int clickDelay = 0;
-            private final Random random = new Random();
-            private boolean wasAttacking = false;
             
             /**
-             * CPS Booster Mod - Minecraft 1.20.1
+             * Ultra Fast Mod - Minecraft 1.20.1
              * 
              * المميزات:
-             * - Toggle بـ Left ALT
-             * - يزود CPS لـ 10-12 (آمن ومتوازن)
-             * - Randomness طبيعي عشان ما يبانش robot
-             * - يشتغل لما تمسك Left Click
-             * - Respect Attack Cooldown
+             * ✅ ZERO DELAY Block Placement - حط بلوكات بسرعة خارقة!
+             * ✅ Fast Attack - يشيل الـ attack cooldown للضرب السريع
+             * ✅ Toggle بـ Left ALT
              * 
-             * الاستخدام:
-             * 1. اضغط Left ALT لتشغيل المود
-             * 2. امسك Left Mouse Button (زر الضرب)
-             * 3. المود يزود CPS تلقائياً!
+             * كيفية الاستخدام:
+             * 1. اضغط Left ALT للتشغيل
+             * 2. امسك Right Click → بلوكات تتحط فوراً بدون delay!
+             * 3. امسك Left Click → ضرب سريع بدون cooldown!
              */
             @Inject(method = "tick", at = @At("HEAD"))
             private void onClientTick(CallbackInfo ci) {
@@ -101,75 +97,61 @@ jobs:
                 
                 MinecraftClient client = (MinecraftClient)(Object)this;
                 
-                // فحص زر Left ALT للـ toggle
+                // Toggle بـ Left ALT
                 boolean isAltPressed = GLFW.glfwGetKey(
                     client.getWindow().getHandle(), 
                     GLFW.GLFW_KEY_LEFT_ALT
                 ) == GLFW.GLFW_PRESS;
                 
-                // Toggle المود
                 if (isAltPressed && !wasAltPressed) {
-                    CPSBoosterMod.isEnabled = !CPSBoosterMod.isEnabled;
-                    String status = CPSBoosterMod.isEnabled ? "§a§lON §7(10-12 CPS)" : "§c§lOFF";
+                    UltraFastMod.isEnabled = !UltraFastMod.isEnabled;
+                    String status = UltraFastMod.isEnabled ? 
+                        "§a§lON §7(ULTRA SPEED!)" : "§c§lOFF";
                     this.player.sendMessage(
-                        Text.literal("§6§l[CPS Booster] " + status), 
+                        Text.literal("§6§l[Ultra Fast] " + status), 
                         true
                     );
                 }
                 
                 wasAltPressed = isAltPressed;
                 
-                // لو المود مش شغال، متعملش حاجة
-                if (!CPSBoosterMod.isEnabled) return;
-                
-                // تقليل الـ delay
-                if (clickDelay > 0) {
-                    clickDelay--;
-                    return;
+                // لو المود شغال
+                if (UltraFastMod.isEnabled) {
+                    // شيل الـ itemUseCooldown (للـ Right Click - block placement)
+                    // ده بيخلي البلوكات تتحط فوراً بدون 4-tick delay!
+                    if (this.itemUseCooldown > 0) {
+                        this.itemUseCooldown = 0;
+                    }
                 }
-                
-                // فحص لو اللاعب ماسك Left Click
-                boolean isAttacking = GLFW.glfwGetMouseButton(
-                    client.getWindow().getHandle(),
-                    GLFW.GLFW_MOUSE_BUTTON_LEFT
-                ) == GLFW.GLFW_PRESS;
-                
-                // لو اللاعب بدأ يضغط (edge detection)
-                if (isAttacking && !wasAttacking) {
-                    // أول ضغطة - خليها تمر عادي
-                    wasAttacking = true;
-                    return;
-                }
-                
-                wasAttacking = isAttacking;
-                
-                // لو اللاعب ماسك الزر
-                if (isAttacking) {
-                    // فحص Attack Cooldown (لازم يكون جاهز)
-                    float cooldownProgress = this.player.getAttackCooldownProgress(0.0F);
-                    if (cooldownProgress < 0.9F) {
-                        // لسه مش جاهز، استنى شوية
-                        clickDelay = 1;
-                        return;
-                    }
-                    
-                    // اعمل ضغطة إضافية!
-                    if (client.crosshairTarget != null) {
-                        client.interactionManager.attackEntity(this.player, this.player.getWorld().getEntityById(0));
-                        this.player.swingHand(Hand.MAIN_HAND);
-                    }
-                    
-                    // حساب الـ delay التالي بـ randomness
-                    // Target: 10-12 CPS = حوالي 1.66-2 ticks بين كل ضغطة
-                    // (20 ticks = 1 second, so 20/12 = 1.66 ticks)
-                    int baseDelay = 2; // ~10 CPS
-                    int randomVariation = random.nextInt(2); // 0 أو 1
-                    clickDelay = baseDelay + randomVariation; // 2-3 ticks = 10-13 CPS
-                    
-                    // إضافة variation عشوائي أحياناً (عشان يبقى طبيعي أكتر)
-                    if (random.nextInt(10) < 2) { // 20% من الوقت
-                        clickDelay += random.nextInt(2); // يزيد 0-1 tick إضافي
-                    }
+            }
+        }
+        EOF
+    
+    - name: Write ClientPlayerEntityMixin.java
+      shell: bash
+      run: |
+        cat << 'EOF' > src/main/java/com/ultrafast/mixin/ClientPlayerEntityMixin.java
+        package com.ultrafast.mixin;
+        
+        import com.ultrafast.UltraFastMod;
+        import net.minecraft.client.network.ClientPlayerEntity;
+        import org.spongepowered.asm.mixin.Mixin;
+        import org.spongepowered.asm.mixin.injection.At;
+        import org.spongepowered.asm.mixin.injection.Inject;
+        import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+        
+        @Mixin(ClientPlayerEntity.class)
+        public class ClientPlayerEntityMixin {
+            
+            /**
+             * يخلي الـ attack cooldown دايماً 100%
+             * ده بيخليك تضرب بسرعة خارقة!
+             */
+            @Inject(method = "getAttackCooldownProgress", at = @At("HEAD"), cancellable = true)
+            private void onGetAttackCooldownProgress(float baseTime, CallbackInfoReturnable<Float> cir) {
+                if (UltraFastMod.isEnabled) {
+                    // دايماً جاهز للضرب - 100% cooldown!
+                    cir.setReturnValue(1.0F);
                 }
             }
         }
@@ -181,17 +163,17 @@ jobs:
         cat << 'EOF' > src/main/resources/fabric.mod.json
         {
           "schemaVersion": 1,
-          "id": "cpsbooster",
+          "id": "ultrafast",
           "version": "1.0.0",
-          "name": "CPS Booster",
-          "description": "Press LEFT ALT to toggle! Boosts CPS to 10-12 with natural randomness when holding Left Click!",
+          "name": "Ultra Fast Mod",
+          "description": "Press LEFT ALT to toggle! ZERO DELAY block placement + Fast attack! Place blocks and attack at superhuman speed!",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
-            "client": ["com.cpsbooster.CPSBoosterMod"]
+            "client": ["com.ultrafast.UltraFastMod"]
           },
-          "mixins": ["cpsbooster.mixins.json"],
+          "mixins": ["ultrafast.mixins.json"],
           "depends": {
             "fabricloader": ">=0.14.19",
             "minecraft": "1.20.1"
@@ -199,16 +181,19 @@ jobs:
         }
         EOF
     
-    - name: Write cpsbooster.mixins.json
+    - name: Write ultrafast.mixins.json
       shell: bash
       run: |
-        cat << 'EOF' > src/main/resources/cpsbooster.mixins.json
+        cat << 'EOF' > src/main/resources/ultrafast.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
-          "package": "com.cpsbooster.mixin",
+          "package": "com.ultrafast.mixin",
           "compatibilityLevel": "JAVA_17",
-          "client": ["MinecraftClientMixin"],
+          "client": [
+            "MinecraftClientMixin",
+            "ClientPlayerEntityMixin"
+          ],
           "injectors": {"defaultRequire": 1}
         }
         EOF
@@ -225,9 +210,9 @@ jobs:
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
         
-        archivesBaseName = "cps-booster"
+        archivesBaseName = "ultra-fast-mod"
         version = "1.0.0"
-        group = "com.cpsbooster"
+        group = "com.ultrafast"
         
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
@@ -283,7 +268,7 @@ jobs:
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'cps-booster'
+        rootProject.name = 'ultra-fast-mod'
         EOF
     
     - name: Create Gradle Wrapper
@@ -311,5 +296,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: cps-booster-v1.0.0-mc1.20.1
+        name: ultra-fast-mod-v1.0.0-mc1.20.1
         path: build/libs/*.jar
