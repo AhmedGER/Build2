@@ -1,4 +1,4 @@
-name: Build Ultra Fast Mod (1.20.1 - Fast Place + CPS Booster)
+name: Build Ultra Fast Mod (1.20.1 - FIXED - Simple Version)
 
 on:
   workflow_dispatch:
@@ -46,7 +46,7 @@ jobs:
             public void onInitializeClient() {
                 System.out.println("[Ultra Fast] Mod loaded!");
                 System.out.println("[Ultra Fast] Press LEFT ALT to toggle!");
-                System.out.println("[Ultra Fast] Features: Zero delay block placement + CPS boost!");
+                System.out.println("[Ultra Fast] ZERO delay blocks + Super fast attack!");
             }
         }
         EOF
@@ -76,20 +76,22 @@ jobs:
             @Shadow
             private int itemUseCooldown;
             
+            @Shadow
+            private int attackCooldown;
+            
             private boolean wasAltPressed = false;
             
             /**
              * Ultra Fast Mod - Minecraft 1.20.1
              * 
              * المميزات:
-             * ✅ ZERO DELAY Block Placement - حط بلوكات بسرعة خارقة!
-             * ✅ Fast Attack - يشيل الـ attack cooldown للضرب السريع
+             * ✅ ZERO DELAY Block Placement
+             * ✅ ZERO DELAY Attack
              * ✅ Toggle بـ Left ALT
              * 
-             * كيفية الاستخدام:
-             * 1. اضغط Left ALT للتشغيل
-             * 2. امسك Right Click → بلوكات تتحط فوراً بدون delay!
-             * 3. امسك Left Click → ضرب سريع بدون cooldown!
+             * ملاحظة مهمة:
+             * - itemUseCooldown → للـ Right Click (block placement)
+             * - attackCooldown → للـ Left Click (attack)
              */
             @Inject(method = "tick", at = @At("HEAD"))
             private void onClientTick(CallbackInfo ci) {
@@ -106,7 +108,7 @@ jobs:
                 if (isAltPressed && !wasAltPressed) {
                     UltraFastMod.isEnabled = !UltraFastMod.isEnabled;
                     String status = UltraFastMod.isEnabled ? 
-                        "§a§lON §7(ULTRA SPEED!)" : "§c§lOFF";
+                        "§a§lON §7(ULTRA SPEED MODE!)" : "§c§lOFF";
                     this.player.sendMessage(
                         Text.literal("§6§l[Ultra Fast] " + status), 
                         true
@@ -117,41 +119,17 @@ jobs:
                 
                 // لو المود شغال
                 if (UltraFastMod.isEnabled) {
-                    // شيل الـ itemUseCooldown (للـ Right Click - block placement)
-                    // ده بيخلي البلوكات تتحط فوراً بدون 4-tick delay!
+                    // 1. ZERO DELAY BLOCK PLACEMENT
+                    // شيل الـ itemUseCooldown (Right Click - block placement)
                     if (this.itemUseCooldown > 0) {
                         this.itemUseCooldown = 0;
                     }
-                }
-            }
-        }
-        EOF
-    
-    - name: Write ClientPlayerEntityMixin.java
-      shell: bash
-      run: |
-        cat << 'EOF' > src/main/java/com/ultrafast/mixin/ClientPlayerEntityMixin.java
-        package com.ultrafast.mixin;
-        
-        import com.ultrafast.UltraFastMod;
-        import net.minecraft.client.network.ClientPlayerEntity;
-        import org.spongepowered.asm.mixin.Mixin;
-        import org.spongepowered.asm.mixin.injection.At;
-        import org.spongepowered.asm.mixin.injection.Inject;
-        import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
-        
-        @Mixin(ClientPlayerEntity.class)
-        public class ClientPlayerEntityMixin {
-            
-            /**
-             * يخلي الـ attack cooldown دايماً 100%
-             * ده بيخليك تضرب بسرعة خارقة!
-             */
-            @Inject(method = "getAttackCooldownProgress", at = @At("HEAD"), cancellable = true)
-            private void onGetAttackCooldownProgress(float baseTime, CallbackInfoReturnable<Float> cir) {
-                if (UltraFastMod.isEnabled) {
-                    // دايماً جاهز للضرب - 100% cooldown!
-                    cir.setReturnValue(1.0F);
+                    
+                    // 2. ZERO DELAY ATTACK
+                    // شيل الـ attackCooldown (Left Click - attack)
+                    if (this.attackCooldown > 0) {
+                        this.attackCooldown = 0;
+                    }
                 }
             }
         }
@@ -164,9 +142,9 @@ jobs:
         {
           "schemaVersion": 1,
           "id": "ultrafast",
-          "version": "1.0.0",
+          "version": "1.0.1",
           "name": "Ultra Fast Mod",
-          "description": "Press LEFT ALT to toggle! ZERO DELAY block placement + Fast attack! Place blocks and attack at superhuman speed!",
+          "description": "Press LEFT ALT to toggle! ZERO DELAY for everything - place blocks and attack at superhuman speed!",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
@@ -190,10 +168,7 @@ jobs:
           "minVersion": "0.8",
           "package": "com.ultrafast.mixin",
           "compatibilityLevel": "JAVA_17",
-          "client": [
-            "MinecraftClientMixin",
-            "ClientPlayerEntityMixin"
-          ],
+          "client": ["MinecraftClientMixin"],
           "injectors": {"defaultRequire": 1}
         }
         EOF
@@ -211,7 +186,7 @@ jobs:
         targetCompatibility = JavaVersion.VERSION_17
         
         archivesBaseName = "ultra-fast-mod"
-        version = "1.0.0"
+        version = "1.0.1"
         group = "com.ultrafast"
         
         repositories {
@@ -296,5 +271,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: ultra-fast-mod-v1.0.0-mc1.20.1
+        name: ultra-fast-mod-v1.0.1-FIXED-mc1.20.1
         path: build/libs/*.jar
