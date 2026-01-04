@@ -1,4 +1,4 @@
-name: Build Auto Block Placer Mod (Left ALT Toggle) - 1.16.5
+name: Build CPS Booster Mod (1.20.1 - Left ALT Toggle)
 
 on:
   workflow_dispatch:
@@ -8,16 +8,16 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Set up JDK 8
+    - name: Set up JDK 17
       uses: actions/setup-java@v3
       with:
-        java-version: '8'
+        java-version: '17'
         distribution: 'temurin'
     
     - name: Setup Gradle
       uses: gradle/gradle-build-action@v2
       with:
-        gradle-version: 6.9
+        gradle-version: 8.1
     
     - name: Clean everything
       run: |
@@ -27,23 +27,25 @@ jobs:
     
     - name: Create directories
       run: |
-        mkdir -p src/main/java/com/autoplacer/mixin
+        mkdir -p src/main/java/com/cpsbooster/mixin
         mkdir -p src/main/resources
     
-    - name: Write AutoBlockPlacerMod.java
+    - name: Write CPSBoosterMod.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/autoplacer/AutoBlockPlacerMod.java
-        package com.autoplacer;
+        cat << 'EOF' > src/main/java/com/cpsbooster/CPSBoosterMod.java
+        package com.cpsbooster;
         
         import net.fabricmc.api.ClientModInitializer;
         
-        public class AutoBlockPlacerMod implements ClientModInitializer {
-            public static final String MOD_ID = "autoplacer";
+        public class CPSBoosterMod implements ClientModInitializer {
+            public static final String MOD_ID = "cpsbooster";
             public static boolean isEnabled = false;
             
             @Override
             public void onInitializeClient() {
+                System.out.println("[CPS Booster] Mod loaded! Press LEFT ALT to toggle!");
+                System.out.println("[CPS Booster] Target: 10-12 CPS with natural randomness!");
             }
         }
         EOF
@@ -51,18 +53,14 @@ jobs:
     - name: Write MinecraftClientMixin.java
       shell: bash
       run: |
-        cat << 'EOF' > src/main/java/com/autoplacer/mixin/MinecraftClientMixin.java
-        package com.autoplacer.mixin;
+        cat << 'EOF' > src/main/java/com/cpsbooster/mixin/MinecraftClientMixin.java
+        package com.cpsbooster.mixin;
         
-        import com.autoplacer.AutoBlockPlacerMod;
+        import com.cpsbooster.CPSBoosterMod;
         import net.minecraft.client.MinecraftClient;
         import net.minecraft.client.network.ClientPlayerEntity;
-        import net.minecraft.util.ActionResult;
+        import net.minecraft.text.Text;
         import net.minecraft.util.Hand;
-        import net.minecraft.util.hit.BlockHitResult;
-        import net.minecraft.util.math.BlockPos;
-        import net.minecraft.util.math.Direction;
-        import net.minecraft.util.math.Vec3d;
         import org.lwjgl.glfw.GLFW;
         import org.spongepowered.asm.mixin.Mixin;
         import org.spongepowered.asm.mixin.Shadow;
@@ -70,196 +68,108 @@ jobs:
         import org.spongepowered.asm.mixin.injection.Inject;
         import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
         
+        import java.util.Random;
+        
         @Mixin(MinecraftClient.class)
         public class MinecraftClientMixin {
             @Shadow
             public ClientPlayerEntity player;
             
             private boolean wasAltPressed = false;
-            private int placementCooldown = 0;
+            private int clickDelay = 0;
+            private final Random random = new Random();
+            private boolean wasAttacking = false;
             
+            /**
+             * CPS Booster Mod - Minecraft 1.20.1
+             * 
+             * المميزات:
+             * - Toggle بـ Left ALT
+             * - يزود CPS لـ 10-12 (آمن ومتوازن)
+             * - Randomness طبيعي عشان ما يبانش robot
+             * - يشتغل لما تمسك Left Click
+             * - Respect Attack Cooldown
+             * 
+             * الاستخدام:
+             * 1. اضغط Left ALT لتشغيل المود
+             * 2. امسك Left Mouse Button (زر الضرب)
+             * 3. المود يزود CPS تلقائياً!
+             */
             @Inject(method = "tick", at = @At("HEAD"))
             private void onClientTick(CallbackInfo ci) {
                 if (this.player == null) return;
                 
                 MinecraftClient client = (MinecraftClient)(Object)this;
                 
-                // فحص زر Left ALT للتشغيل/الإيقاف
+                // فحص زر Left ALT للـ toggle
                 boolean isAltPressed = GLFW.glfwGetKey(
                     client.getWindow().getHandle(), 
                     GLFW.GLFW_KEY_LEFT_ALT
                 ) == GLFW.GLFW_PRESS;
                 
+                // Toggle المود
                 if (isAltPressed && !wasAltPressed) {
-                    AutoBlockPlacerMod.isEnabled = !AutoBlockPlacerMod.isEnabled;
+                    CPSBoosterMod.isEnabled = !CPSBoosterMod.isEnabled;
+                    String status = CPSBoosterMod.isEnabled ? "§a§lON §7(10-12 CPS)" : "§c§lOFF";
+                    this.player.sendMessage(
+                        Text.literal("§6§l[CPS Booster] " + status), 
+                        true
+                    );
                 }
                 
                 wasAltPressed = isAltPressed;
                 
-                // تقليل الـ cooldown
-                if (placementCooldown > 0) {
-                    placementCooldown--;
-                }
+                // لو المود مش شغال، متعملش حاجة
+                if (!CPSBoosterMod.isEnabled) return;
                 
-                // إذا المود شغال والـ Right Click مضغوط
-                if (AutoBlockPlacerMod.isEnabled) {
-                    boolean isRightClickPressed = GLFW.glfwGetMouseButton(
-                        client.getWindow().getHandle(),
-                        GLFW.GLFW_MOUSE_BUTTON_RIGHT
-                    ) == GLFW.GLFW_PRESS;
-                    
-                    if (isRightClickPressed && placementCooldown <= 0) {
-                        tryPlaceBlock(client);
-                        // سرعة أعلى شوية (2 ticks بدل 4)
-                        placementCooldown = 2;
-                    }
-                }
-            }
-            
-            private void tryPlaceBlock(MinecraftClient client) {
-                if (this.player == null) return;
-                if (client.interactionManager == null) return;
-                if (client.world == null) return;
-                
-                // تأكد إن اللاعب شايل حاجة في إيده
-                if (this.player.getMainHandStack().isEmpty()) return;
-                
-                // حساب اتجاه الحركة
-                Direction moveDirection = getMovementDirection();
-                if (moveDirection == null) {
-                    return; // لو مش بيتحرك، متحطش حاجة
-                }
-                
-                // البحث عن بلوك للبناء عليه
-                BlockPos playerPos = this.player.getBlockPos();
-                BlockPos targetBlock = findBlockToPlaceOn(client, playerPos, moveDirection);
-                
-                if (targetBlock == null) {
-                    return; // مفيش بلوك نبني عليه
-                }
-                
-                // تحديد الجانب اللي هنحط عليه والمكان الجديد
-                Direction placeDirection = Direction.UP; // نحط على الوش العلوي
-                BlockPos newBlockPos = targetBlock.up();
-                
-                // تأكد إن المكان فاضي
-                if (!client.world.getBlockState(newBlockPos).isAir()) {
+                // تقليل الـ delay
+                if (clickDelay > 0) {
+                    clickDelay--;
                     return;
                 }
                 
-                // إنشاء BlockHitResult
-                Vec3d hitVec = new Vec3d(
-                    targetBlock.getX() + 0.5,
-                    targetBlock.getY() + 1.0, // على السطح العلوي
-                    targetBlock.getZ() + 0.5
-                );
+                // فحص لو اللاعب ماسك Left Click
+                boolean isAttacking = GLFW.glfwGetMouseButton(
+                    client.getWindow().getHandle(),
+                    GLFW.GLFW_MOUSE_BUTTON_LEFT
+                ) == GLFW.GLFW_PRESS;
                 
-                BlockHitResult hitResult = new BlockHitResult(
-                    hitVec,
-                    placeDirection,
-                    targetBlock,
-                    false
-                );
-                
-                // محاولة وضع البلوك
-                ActionResult result = client.interactionManager.interactBlock(
-                    this.player,
-                    client.world,
-                    Hand.MAIN_HAND,
-                    hitResult
-                );
-                
-                // تحريك الإيد (animation)
-                if (result.isAccepted()) {
-                    this.player.swingHand(Hand.MAIN_HAND);
-                }
-            }
-            
-            /**
-             * البحث عن بلوك للبناء عليه
-             */
-            private BlockPos findBlockToPlaceOn(MinecraftClient client, BlockPos playerPos, Direction direction) {
-                // البحث في اتجاه الحركة
-                BlockPos checkPos = playerPos.offset(direction);
-                
-                // أولاً: شوف لو فيه بلوك في نفس المستوى
-                BlockPos sameLevel = checkPos.down();
-                if (!client.world.getBlockState(sameLevel).isAir()) {
-                    return sameLevel;
+                // لو اللاعب بدأ يضغط (edge detection)
+                if (isAttacking && !wasAttacking) {
+                    // أول ضغطة - خليها تمر عادي
+                    wasAttacking = true;
+                    return;
                 }
                 
-                // ثانياً: شوف لو فيه بلوك تحت بمستوى واحد
-                BlockPos oneDown = checkPos.down(2);
-                if (!client.world.getBlockState(oneDown).isAir()) {
-                    return oneDown;
-                }
+                wasAttacking = isAttacking;
                 
-                // ثالثاً: شوف لو فيه بلوك تحت بمستويين
-                BlockPos twoDown = checkPos.down(3);
-                if (!client.world.getBlockState(twoDown).isAir()) {
-                    return twoDown;
-                }
-                
-                return null; // مفيش بلوك قريب
-            }
-            
-            /**
-             * حساب اتجاه الحركة بناءً على المفاتيح المضغوطة
-             */
-            private Direction getMovementDirection() {
-                if (this.player == null) return null;
-                
-                MinecraftClient client = (MinecraftClient)(Object)this;
-                long window = client.getWindow().getHandle();
-                
-                // فحص المفاتيح
-                boolean forward = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_W) == GLFW.GLFW_PRESS;
-                boolean backward = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_S) == GLFW.GLFW_PRESS;
-                boolean left = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_A) == GLFW.GLFW_PRESS;
-                boolean right = GLFW.glfwGetKey(window, GLFW.GLFW_KEY_D) == GLFW.GLFW_PRESS;
-                
-                // لو مش بيتحرك
-                if (!forward && !backward && !left && !right) {
-                    return null;
-                }
-                
-                // حساب اتجاه النظر
-                float yaw = this.player.yaw;
-                
-                // حساب اتجاه الحركة النهائي
-                float moveYaw = yaw;
-                
-                if (forward) {
-                    if (left) moveYaw += 45; // أمام-شمال
-                    else if (right) moveYaw -= 45; // أمام-يمين
-                } else if (backward) {
-                    if (left) moveYaw += 135; // خلف-شمال
-                    else if (right) moveYaw -= 135; // خلف-يمين
-                    else moveYaw += 180; // خلف فقط
-                } else if (left) {
-                    moveYaw += 90; // شمال فقط
-                } else if (right) {
-                    moveYaw -= 90; // يمين فقط
-                }
-                
-                return getDirectionFromYaw(moveYaw);
-            }
-            
-            /**
-             * تحويل الـ yaw لأحد الاتجاهات الأربعة
-             */
-            private Direction getDirectionFromYaw(float yaw) {
-                yaw = yaw % 360.0f;
-                if (yaw < 0) yaw += 360.0f;
-                
-                if (yaw >= 315.0f || yaw < 45.0f) {
-                    return Direction.SOUTH;
-                } else if (yaw >= 45.0f && yaw < 135.0f) {
-                    return Direction.WEST;
-                } else if (yaw >= 135.0f && yaw < 225.0f) {
-                    return Direction.NORTH;
-                } else {
-                    return Direction.EAST;
+                // لو اللاعب ماسك الزر
+                if (isAttacking) {
+                    // فحص Attack Cooldown (لازم يكون جاهز)
+                    float cooldownProgress = this.player.getAttackCooldownProgress(0.0F);
+                    if (cooldownProgress < 0.9F) {
+                        // لسه مش جاهز، استنى شوية
+                        clickDelay = 1;
+                        return;
+                    }
+                    
+                    // اعمل ضغطة إضافية!
+                    if (client.crosshairTarget != null) {
+                        client.interactionManager.attackEntity(this.player, this.player.getWorld().getEntityById(0));
+                        this.player.swingHand(Hand.MAIN_HAND);
+                    }
+                    
+                    // حساب الـ delay التالي بـ randomness
+                    // Target: 10-12 CPS = حوالي 1.66-2 ticks بين كل ضغطة
+                    // (20 ticks = 1 second, so 20/12 = 1.66 ticks)
+                    int baseDelay = 2; // ~10 CPS
+                    int randomVariation = random.nextInt(2); // 0 أو 1
+                    clickDelay = baseDelay + randomVariation; // 2-3 ticks = 10-13 CPS
+                    
+                    // إضافة variation عشوائي أحياناً (عشان يبقى طبيعي أكتر)
+                    if (random.nextInt(10) < 2) { // 20% من الوقت
+                        clickDelay += random.nextInt(2); // يزيد 0-1 tick إضافي
+                    }
                 }
             }
         }
@@ -271,33 +181,33 @@ jobs:
         cat << 'EOF' > src/main/resources/fabric.mod.json
         {
           "schemaVersion": 1,
-          "id": "autoplacer",
+          "id": "cpsbooster",
           "version": "1.0.0",
-          "name": "Auto Block Placer",
-          "description": "Hold Right Click to place blocks automatically. Toggle with Left ALT.",
+          "name": "CPS Booster",
+          "description": "Press LEFT ALT to toggle! Boosts CPS to 10-12 with natural randomness when holding Left Click!",
           "authors": ["SIGMAxox"],
           "license": "MIT",
           "environment": "client",
           "entrypoints": {
-            "client": ["com.autoplacer.AutoBlockPlacerMod"]
+            "client": ["com.cpsbooster.CPSBoosterMod"]
           },
-          "mixins": ["autoplacer.mixins.json"],
+          "mixins": ["cpsbooster.mixins.json"],
           "depends": {
-            "fabricloader": ">=0.11.0",
-            "minecraft": "1.16.5"
+            "fabricloader": ">=0.14.19",
+            "minecraft": "1.20.1"
           }
         }
         EOF
     
-    - name: Write autoplacer.mixins.json
+    - name: Write cpsbooster.mixins.json
       shell: bash
       run: |
-        cat << 'EOF' > src/main/resources/autoplacer.mixins.json
+        cat << 'EOF' > src/main/resources/cpsbooster.mixins.json
         {
           "required": true,
           "minVersion": "0.8",
-          "package": "com.autoplacer.mixin",
-          "compatibilityLevel": "JAVA_8",
+          "package": "com.cpsbooster.mixin",
+          "compatibilityLevel": "JAVA_17",
           "client": ["MinecraftClientMixin"],
           "injectors": {"defaultRequire": 1}
         }
@@ -308,25 +218,30 @@ jobs:
       run: |
         cat << 'EOF' > build.gradle
         plugins {
-            id 'fabric-loom' version '0.7-SNAPSHOT'
+            id 'fabric-loom' version '1.2-SNAPSHOT'
             id 'maven-publish'
         }
         
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
         
-        archivesBaseName = "auto-block-placer"
+        archivesBaseName = "cps-booster"
         version = "1.0.0"
-        group = "com.autoplacer"
+        group = "com.cpsbooster"
         
         repositories {
             maven { url 'https://maven.fabricmc.net/' }
+            maven {
+                url 'https://www.cursemaven.com'
+                content { includeGroup "curse.maven" }
+            }
         }
         
         dependencies {
-            minecraft "com.mojang:minecraft:1.16.5"
-            mappings "net.fabricmc:yarn:1.16.5+build.10:v2"
-            modImplementation "net.fabricmc:fabric-loader:0.11.3"
+            minecraft "com.mojang:minecraft:1.20.1"
+            mappings "net.fabricmc:yarn:1.20.1+build.10:v2"
+            modImplementation "net.fabricmc:fabric-loader:0.14.19"
+            modImplementation "curse.maven:fabric-api-306612:4902738"
         }
         
         processResources {
@@ -338,6 +253,7 @@ jobs:
         
         tasks.withType(JavaCompile).configureEach {
             it.options.encoding = "UTF-8"
+            it.options.release = 17
         }
         
         java {
@@ -367,11 +283,11 @@ jobs:
                 gradlePluginPortal()
             }
         }
-        rootProject.name = 'auto-block-placer'
+        rootProject.name = 'cps-booster'
         EOF
     
     - name: Create Gradle Wrapper
-      run: gradle wrapper --gradle-version 6.9
+      run: gradle wrapper --gradle-version 8.1
     
     - name: Grant execute permission
       run: chmod +x gradlew
@@ -395,5 +311,5 @@ jobs:
     - name: Upload Mod JAR
       uses: actions/upload-artifact@v4
       with:
-        name: auto-block-placer-v1.0.0
+        name: cps-booster-v1.0.0-mc1.20.1
         path: build/libs/*.jar
